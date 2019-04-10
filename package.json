@@ -25,9 +25,12 @@
     "type": "git",
     "url": "git+https://github.com/creditiq/ciq-story"
   },
-  "dependencies": {},
+  "dependencies": {
+    "lodash": "^4.17.11"
+  },
   "devDependencies": {
     "@types/jest": "^20.0.8",
+    "@types/lodash": "^4.14.123",
     "@types/mockery": "^1.4.29",
     "@types/node": "^7.0.12",
     "@types/sinon": "^1.16.31",

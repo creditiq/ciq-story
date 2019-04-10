@@ -1,6 +1,6 @@
 {
   "name": "ciq-story",
-  "version": "1.0.2",
+  "version": "1.1.0",
   "main": "dist/index.js",
   "scripts": {
     "precommit": "ciq package check-file-links",

@@ -83,6 +83,10 @@ export class CiqStoryTeller {
     this.story = [...this.story, ...twists];
   }
 
+  setTwists(twists: CiqStoryTwist[]) {
+    this.story = [...twists];
+  }
+
   playNextStoryFrame() {
     // if we're already waiting on the timeout lets not set another, if we hit the end of the story we need to restart though
     if (this.playing) {

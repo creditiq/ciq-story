@@ -13,23 +13,10 @@ const createIframe = () => {
     top: 0;
     left: 0;
   `);
-  // clear it out cause it's easier to go from the root
-  const idocument = iframe.contentDocument;
   iframe.setAttribute('width', '900');
   iframe.setAttribute('height', '800');
   iframe.setAttribute('sandbox', 'allow-same-origin');
   iframe.setAttribute('src', 'about:blank');
-  if (!idocument) {
-    throw new Error('iframe had no content document, this is a problem');
-  }
-  idocument.open();
-  idocument.write('<!DOCTYPE html>');
-  idocument.write('<html>');
-  idocument.write('<head></head>');
-  idocument.write('<body>this is the iframe</body>');
-  idocument.write('</html>');
-  idocument.close();
-  idocument.removeChild(idocument.childNodes[1]);
   return iframe;
 };
 
@@ -70,13 +57,25 @@ export class CiqStoryTeller {
     `);
     this.container.classList.add('story-teller');
     this.iframe = createIframe();
-    if (this.iframe.contentDocument == null) {
-      throw new Error('iframe had no content document, this is a problem');
-    }
-    this.idocument = this.iframe.contentDocument;
     this.container.appendChild(this.iframe);
     this.pointer = createPointer();
     this.container.appendChild(this.pointer);
+  }
+
+  init() {
+    const idocument = this.iframe.contentDocument;
+    if (!idocument) {
+      throw new Error('iframe had no content document, this is a problem');
+    }
+    this.idocument = idocument;
+    idocument.open();
+    idocument.write('<!DOCTYPE html>');
+    idocument.write('<html>');
+    idocument.write('<head></head>');
+    idocument.write('<body>this is the iframe</body>');
+    idocument.write('</html>');
+    idocument.close();
+    idocument.removeChild(idocument.childNodes[1]);
   }
 
   addTwists(twists: CiqStoryTwist[]) {

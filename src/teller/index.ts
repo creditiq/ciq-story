@@ -79,11 +79,13 @@ export class CiqStoryTeller {
   }
 
   addTwists(twists: CiqStoryTwist[]) {
-    this.story = [...this.story, ...twists];
+    this.setTwists([...this.story, ...twists]);
   }
 
   setTwists(twists: CiqStoryTwist[]) {
-    this.story = [...twists];
+    this.story = [...twists].sort((t1, t2) => {
+      return t1.timeSincePageLoad - t2.timeSincePageLoad;
+    });
   }
 
   playNextStoryFrame() {
@@ -100,98 +102,101 @@ export class CiqStoryTeller {
     const nextFrameDelay = Math.min(Math.ceil(thisTwist.timeSincePageLoad - (lastTwist && lastTwist.timeSincePageLoad || 0)), 1000);
     this.playing = true;
     setTimeout(() => {
-      const twist = thisTwist;
-      const targetNode = twist.targetNode && this.findNodeByNodeId(twist.targetNode.nodeId);
-      switch (twist.type) {
-        case 'childList':
-          if (twist.addedNodes) {
-            twist.addedNodes.forEach((storyNode: CiqStoryNode) => {
-              if (!targetNode) {
-                console.warn('could not find targetNode for addition', JSON.stringify(twist.targetNode));
-                return;
-              }
-              const node = this.createNode(storyNode);
-              if (node) {
-                targetNode.appendChild(node);
-              } else if (storyNode.nodeType === 1 || storyNode.nodeType === 3) {
-                throw new Error('couldnt make node for element or text node');
-              }
-            });
-          }
-          if (twist.removedNodes) {
-            twist.removedNodes.forEach((storyNode: CiqStoryNode) => {
-              if (!targetNode) {
-                console.log('could not find targetNode for removal', JSON.stringify(twist.targetNode));
-                return;
-              }
-              let removeNode;
-              if (storyNode.nodeType === 3 || storyNode.nodeType === 8) {
-                removeNode = this.findTextNode(storyNode, targetNode);
-                delete nodeIdToTextNode[storyNode.nodeId];
-              } else {
-                removeNode = this.findNodeByNodeId(storyNode.nodeId, targetNode);
-              }
-              if (removeNode) {
-                if (removeNode.parentNode !== targetNode) {
-                  console.log('removeNode isnt the child of the target at this point....', storyNode);
-                  return;
-                }
-                targetNode.removeChild(removeNode);
-              }
+      this.playTwistSync(thisTwist);
+    }, nextFrameDelay);
+  }
 
-            });
-          }
-          break;
-        case 'attributes':
-          if (isElement(targetNode)) {
-            targetNode.setAttribute(twist.attributeName, twist.attributeValue || '');
-          }
-          break;
-        case 'resize':
-          this.container.style.width = (this.iframe.width = twist.width.toString()) + 'px';
-          this.container.style.height = (this.iframe.height = twist.height.toString()) + 'px';
-          break;
-        case 'event':
-          switch (twist.eventType) {
-            case 'mousemove': {
-              const top = twist.clientY + 'px';
-              const left = twist.clientX + 'px';
-              this.pointer.style.top = top;
-              this.pointer.style.left = left;
-              if (this.currentClickBubble) {
-                this.currentClickBubble.element.style.top = top;
-                this.currentClickBubble.element.style.left = left;
-              }
-              break;
+  playTwistSync = (twist: CiqStoryTwist) => {
+    const targetNode = twist.targetNode && this.findNodeByNodeId(twist.targetNode.nodeId);
+    switch (twist.type) {
+      case 'childList':
+        if (twist.addedNodes) {
+          twist.addedNodes.forEach((storyNode: CiqStoryNode) => {
+            if (!targetNode) {
+              console.warn('could not find targetNode for addition', JSON.stringify(twist.targetNode));
+              return;
             }
-            case 'mousedown': {
-              this.pointer.classList.add('mousedown');
-              const top = twist.clientY + 'px';
-              const left = twist.clientX + 'px';
-              this.currentClickBubble = new ClickBubble();
+            const node = this.createNode(storyNode);
+            if (node) {
+              targetNode.appendChild(node);
+            } else if (storyNode.nodeType === 1 || storyNode.nodeType === 3) {
+              throw new Error('couldnt make node for element or text node');
+            }
+          });
+        }
+        if (twist.removedNodes) {
+          twist.removedNodes.forEach((storyNode: CiqStoryNode) => {
+            if (!targetNode) {
+              console.log('could not find targetNode for removal', JSON.stringify(twist.targetNode));
+              return;
+            }
+            let removeNode;
+            if (storyNode.nodeType === 3 || storyNode.nodeType === 8) {
+              removeNode = this.findTextNode(storyNode, targetNode);
+              delete nodeIdToTextNode[storyNode.nodeId];
+            } else {
+              removeNode = this.findNodeByNodeId(storyNode.nodeId, targetNode);
+            }
+            if (removeNode) {
+              if (removeNode.parentNode !== targetNode) {
+                console.log('removeNode isnt the child of the target at this point....', storyNode);
+                return;
+              }
+              targetNode.removeChild(removeNode);
+            }
+
+          });
+        }
+        break;
+      case 'attributes':
+        if (isElement(targetNode)) {
+          targetNode.setAttribute(twist.attributeName, twist.attributeValue || '');
+        }
+        break;
+      case 'resize':
+        this.container.style.width = (this.iframe.width = twist.width.toString()) + 'px';
+        this.container.style.height = (this.iframe.height = twist.height.toString()) + 'px';
+        break;
+      case 'event':
+        switch (twist.eventType) {
+          case 'mousemove': {
+            const top = twist.clientY + 'px';
+            const left = twist.clientX + 'px';
+            this.pointer.style.top = top;
+            this.pointer.style.left = left;
+            if (this.currentClickBubble) {
               this.currentClickBubble.element.style.top = top;
               this.currentClickBubble.element.style.left = left;
-              this.container.appendChild(this.currentClickBubble.element);
-              break;
             }
-            case 'mouseup':
-              this.pointer.classList.remove('mousedown');
-              if (this.currentClickBubble) {
-                this.currentClickBubble.up();
-                this.currentClickBubble = undefined;
-              }
-              break;
-            case 'input':
-              if (isTextInput(targetNode)) {
-                targetNode.value = twist.textValue || '';
-              }
-              break;
+            break;
           }
-          break;
-      }
-      this.storyIndex++;
-      this.playNextStoryFrame();
-    }, nextFrameDelay);
+          case 'mousedown': {
+            this.pointer.classList.add('mousedown');
+            const top = twist.clientY + 'px';
+            const left = twist.clientX + 'px';
+            this.currentClickBubble = new ClickBubble();
+            this.currentClickBubble.element.style.top = top;
+            this.currentClickBubble.element.style.left = left;
+            this.container.appendChild(this.currentClickBubble.element);
+            break;
+          }
+          case 'mouseup':
+            this.pointer.classList.remove('mousedown');
+            if (this.currentClickBubble) {
+              this.currentClickBubble.up();
+              this.currentClickBubble = undefined;
+            }
+            break;
+          case 'input':
+            if (isTextInput(targetNode)) {
+              targetNode.value = twist.textValue || '';
+            }
+            break;
+        }
+        break;
+    }
+    this.storyIndex++;
+    this.playNextStoryFrame();
   }
 
   createNode(storyNode: CiqStoryNode): Node | undefined {

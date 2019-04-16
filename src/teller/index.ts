@@ -47,7 +47,7 @@ export class CiqStoryTeller {
   private pointer: HTMLElement;
   private storyIndex: number = 0;
   private story: CiqStoryTwist[];
-  private playing: boolean = false;
+  private waitingOnNextFrame: boolean = false;
   private currentClickBubble?: ClickBubble;
   constructor() {
     this.container = document.createElement('div');
@@ -90,18 +90,19 @@ export class CiqStoryTeller {
 
   playNextStoryFrame() {
     // if we're already waiting on the timeout lets not set another, if we hit the end of the story we need to restart though
-    if (this.playing) {
+    if (this.waitingOnNextFrame) {
       return;
     }
     const thisTwist = this.story[this.storyIndex];
     if (!thisTwist) {
-      this.playing = false;
+      this.waitingOnNextFrame = false;
       return;
     }
     const lastTwist = this.story[this.storyIndex - 1];
     const nextFrameDelay = Math.min(Math.ceil(thisTwist.timeSincePageLoad - (lastTwist && lastTwist.timeSincePageLoad || 0)), 1000);
-    this.playing = true;
+    this.waitingOnNextFrame = true;
     setTimeout(() => {
+      this.waitingOnNextFrame = false;
       this.playTwistSync(thisTwist);
     }, nextFrameDelay);
   }

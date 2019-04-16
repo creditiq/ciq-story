@@ -91,6 +91,7 @@ export function createJournalist(debugMode?: boolean) {
             if (mutation.removedNodes.length) {
               const twist = createChildListTwist(
                 new CiqStoryNode(mutation.target),
+                undefined,
                 Array.prototype.slice.call(mutation.removedNodes).map(makeCiqStoryNode),
               );
               accum.push(twist);

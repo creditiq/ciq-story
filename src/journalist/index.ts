@@ -46,9 +46,9 @@ export function createJournalist(
           }
         } else if (storyNode.tagName === 'SCRIPT') {
           storyNode.tagName = 'POOP-SCRIPT'; // don't let these execute
-          if (storyNode.attributes) {
-            storyNode.attributes.style = `${storyNode.attributes.style}; display: none;`;
-          }
+          const attributes = storyNode.attributes || {};
+          attributes.style = `${attributes.style}; display: none;`;
+          storyNode.attributes = attributes;
         }
         return storyNode;
       })

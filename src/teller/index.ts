@@ -49,6 +49,7 @@ export class CiqStoryTeller {
   private story: CiqStoryTwist[];
   private waitingOnNextFrame: boolean = false;
   private currentClickBubble?: ClickBubble;
+  private nextFrameTimeoutId: number | undefined;
   constructor() {
     this.container = document.createElement('div');
     this.container.setAttribute('style', `
@@ -101,10 +102,16 @@ export class CiqStoryTeller {
     const lastTwist = this.story[this.storyIndex - 1];
     const nextFrameDelay = Math.min(Math.ceil(thisTwist.timeSincePageLoad - (lastTwist && lastTwist.timeSincePageLoad || 0)), 1000);
     this.waitingOnNextFrame = true;
-    setTimeout(() => {
+    this.nextFrameTimeoutId = window.setTimeout(() => {
       this.waitingOnNextFrame = false;
       this.playTwistSync(thisTwist);
     }, nextFrameDelay);
+  }
+
+  pauseStory() {
+    if (this.nextFrameTimeoutId !== undefined) {
+      window.clearTimeout(this.nextFrameTimeoutId);
+    }
   }
 
   playTwistSync = (twist: CiqStoryTwist) => {

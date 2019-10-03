@@ -3,16 +3,21 @@ import { CiqStoryNode } from '../types';
 import { isElement, valueOrUndefined } from '../util';
 
 import * as _ from 'lodash';
+import { IntId } from '../int-id';
 
 const uuid = require('uuid');
 
-export function createJournalist(debugMode?: boolean) {
+export function createJournalist(
+  sendBatch: (twistBatch: { storyId: string, batchId: number, twists: CiqStoryTwist[], isBeforeUnload?: boolean }) => any,
+  opts: { debugMode?: boolean, batchIntervalMs?: number, noBatchInterval?: boolean }
+) {
 
   let recordedTwists: CiqStoryTwist[];
+  const twistId = new IntId();
+  const batchId = new IntId();
   const story = {
-    id: uuid.v1(),
+    id: uuid.v4(),
     timestamp: Date.now(),
-    twists: null as CiqStoryTwist[] | null
   };
 
   // get initial dom state
@@ -30,6 +35,7 @@ export function createJournalist(debugMode?: boolean) {
 
   function makeAddTwist(addedNodes: Node[], target: Node) {
     return createChildListTwist(
+      twistId.next(),
       new CiqStoryNode(target),
       addedNodes.map((addedNode) => {
         const storyNode = makeCiqStoryNode(addedNode);
@@ -40,6 +46,9 @@ export function createJournalist(debugMode?: boolean) {
           }
         } else if (storyNode.tagName === 'SCRIPT') {
           storyNode.tagName = 'POOP-SCRIPT'; // don't let these execute
+          if (storyNode.attributes) {
+            storyNode.attributes.style = `${storyNode.attributes.style}; display: none;`;
+          }
         }
         return storyNode;
       })
@@ -90,6 +99,7 @@ export function createJournalist(debugMode?: boolean) {
             }
             if (mutation.removedNodes.length) {
               const twist = createChildListTwist(
+                twistId.next(),
                 new CiqStoryNode(mutation.target),
                 undefined,
                 Array.prototype.slice.call(mutation.removedNodes).map(makeCiqStoryNode),
@@ -106,6 +116,7 @@ export function createJournalist(debugMode?: boolean) {
             }
             const attributeValue = valueOrUndefined(mutation.target.getAttribute(attributeName));
             const twist = createAttributesTwist(
+              twistId.next(),
               new CiqStoryNode(mutation.target),
               attributeName,
               attributeValue,
@@ -128,6 +139,7 @@ export function createJournalist(debugMode?: boolean) {
 
   function makeAndAddResizeTwist() {
     const resizeTwist = createResizeTwist(
+      twistId.next(),
       window.innerWidth,
       window.innerHeight,
     );
@@ -154,7 +166,7 @@ export function createJournalist(debugMode?: boolean) {
           }
         // tslint:disable-next-line:no-switch-case-fall-through
         case 'mousemove':
-          twist = createEventTwist(e.type, targetNode);
+          twist = createEventTwist(twistId.next(), e.type, targetNode);
           if (e instanceof MouseEvent) {
             twist.clientX = e.clientX;
             twist.clientY = e.clientY;
@@ -164,7 +176,7 @@ export function createJournalist(debugMode?: boolean) {
           if (target instanceof Node) {
             targetNode = new CiqStoryNode(target);
           }
-          twist = createEventTwist(e.type, targetNode);
+          twist = createEventTwist(twistId.next(), e.type, targetNode);
           if (target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement) {
             twist.textValue = target.value;
           }
@@ -176,36 +188,24 @@ export function createJournalist(debugMode?: boolean) {
     }, true);
   });
 
-  setInterval(() => {
-    // call inside anonymous to allow debuggin overrides
-    ciqStoryJournalist.sendTwists(recordedTwists);
-  }, 5000);
+  const getBatch = (isBeforeUnload?: boolean, ) => ({
+    storyId: story.id,
+    batchId: batchId.next(),
+    twists: ciqStoryJournalist.popRecordedTwists(),
+    isBeforeUnload,
+  });
+
+  if (!opts.noBatchInterval) {
+    setInterval(() => {
+      // call inside anonymous to allow debugging overrides
+      sendBatch(getBatch());
+    }, opts.batchIntervalMs || 5000);
+  }
+
+  window.addEventListener('beforeunload', () => sendBatch(getBatch(true)));
 
   const ciqStoryJournalist = {
-    // you can just override this method if you want to log them or something instead
-    lastTwistsLength: 0,
-    sendTwists(twists: CiqStoryTwist[]) {
-      if (!twists.length || twists.length === ciqStoryJournalist.lastTwistsLength) {
-        return;
-      }
-      ciqStoryJournalist.lastTwistsLength = twists.length;
-      story.twists = twists;
-      const oReq = new XMLHttpRequest();
-      oReq.onreadystatechange = () => {
-        let status;
-        if (oReq.readyState === 4) { // `DONE`
-          status = oReq.status;
-          if (status === 200) {
-            console.log(oReq.response);
-          } else {
-            console.log('error');
-          }
-        }
-      };
-      oReq.open('POST', 'https://4kz2iij01i.execute-api.us-east-1.amazonaws.com/production/story');
-      oReq.setRequestHeader('Accept', 'application/json');
-      oReq.send(JSON.stringify(story));
-    },
+    story,
     popRecordedTwists() {
       const twists = recordedTwists;
       recordedTwists = [];

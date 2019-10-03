@@ -3,6 +3,7 @@ import { CiqStoryNode } from './';
 export type TwistType = 'childList' | 'attributes' | 'event' | 'resize';
 
 export type BaseTwist = {
+  twistId: number;
   timeSincePageLoad: number;
   targetNode?: CiqStoryNode;
 };
@@ -39,19 +40,26 @@ export type ResizeTwist = BaseTwist & {
 
 export type CiqStoryTwist = ChildListTwist | AttributesTwist | EventTwist | ResizeTwist;
 
-export const createResizeTwist = (width: number, height: number): ResizeTwist => ({
+export const createResizeTwist = (
+  twistId: number,
+  width: number,
+  height: number,
+): ResizeTwist => ({
+  twistId,
   width,
   height,
   type: 'resize',
   timeSincePageLoad: performance.now()
 });
 export const createEventTwist = (
+  twistId: number,
   eventType: string,
   targetNode?: CiqStoryNode,
   clientX?: number,
   clientY?: number,
   textValue?: string,
 ): EventTwist => ({
+  twistId,
   eventType,
   targetNode,
   clientX,
@@ -61,10 +69,12 @@ export const createEventTwist = (
   timeSincePageLoad: performance.now()
 });
 export const createAttributesTwist = (
+  twistId: number,
   targetNode: CiqStoryNode,
   attributeName: string,
   attributeValue: string | undefined
 ): AttributesTwist => ({
+  twistId,
   attributeName,
   attributeValue,
   targetNode,
@@ -73,10 +83,12 @@ export const createAttributesTwist = (
 });
 
 export const createChildListTwist = (
+  twistId: number,
   targetNode: CiqStoryNode,
   addedNodes: CiqStoryNode[] = [],
   removedNodes: CiqStoryNode[] = []
 ): ChildListTwist => ({
+  twistId,
   addedNodes,
   removedNodes,
   targetNode,

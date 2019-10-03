@@ -1,5 +1,5 @@
 import { isElement, valueOrUndefined } from '../util';
-import { CiqStoryNodeId } from './';
+import { CiqStoryNodeId } from './CiqStoryNodeId';
 export class CiqStoryNode {
   static idFactory: CiqStoryNodeId = new CiqStoryNodeId();
   nodeId: string;

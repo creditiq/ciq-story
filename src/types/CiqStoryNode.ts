@@ -1,7 +1,7 @@
 import { isElement, valueOrUndefined } from '../util';
 import { CiqStoryNodeId } from './';
-const ciqStoryNodeIdFactory = new CiqStoryNodeId();
 export class CiqStoryNode {
+  static idFactory: CiqStoryNodeId = new CiqStoryNodeId();
   nodeId: string;
   nodeType: number;
   tagName: string | undefined;
@@ -10,7 +10,7 @@ export class CiqStoryNode {
   constructor(node: Node) {
     const nodeType = node.nodeType;
     this.nodeType = nodeType;
-    this.nodeId = ciqStoryNodeIdFactory.getStoryNodeId(node);
+    this.nodeId = CiqStoryNode.idFactory.getStoryNodeId(node);
     if (nodeType === 3 || nodeType === 8) {
       this.nodeValue = valueOrUndefined(node.nodeValue);
     }

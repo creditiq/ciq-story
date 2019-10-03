@@ -9,7 +9,7 @@ const uuid = require('uuid');
 
 export function createJournalist(
   sendBatch: (twistBatch: { storyId: string, batchId: number, twists: CiqStoryTwist[], isBeforeUnload?: boolean }) => any,
-  opts: { debugMode?: boolean, batchIntervalMs?: number, noBatchInterval?: boolean }
+  opts: { debugMode?: boolean, batchIntervalMs?: number, noBatchInterval?: boolean } = {}
 ) {
 
   let recordedTwists: CiqStoryTwist[];

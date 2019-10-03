@@ -188,21 +188,27 @@ export function createJournalist(
     }, true);
   });
 
-  const getBatch = (isBeforeUnload?: boolean, ) => ({
-    storyId: story.id,
-    batchId: batchId.next(),
-    twists: ciqStoryJournalist.popRecordedTwists(),
-    isBeforeUnload,
-  });
+  const getAndSendBatch = (isBeforeUnload?: boolean, ) => {
+    const twists = ciqStoryJournalist.popRecordedTwists();
+    if (!twists || twists.length === 0) {
+      return;
+    }
+    return sendBatch({
+      storyId: story.id,
+      batchId: batchId.next(),
+      twists,
+      isBeforeUnload,
+    });
+  };
 
   if (!opts.noBatchInterval) {
     setInterval(() => {
       // call inside anonymous to allow debugging overrides
-      sendBatch(getBatch());
+      getAndSendBatch();
     }, opts.batchIntervalMs || 5000);
   }
 
-  window.addEventListener('beforeunload', () => sendBatch(getBatch(true)));
+  window.addEventListener('beforeunload', () => getAndSendBatch(true));
 
   const ciqStoryJournalist = {
     story,

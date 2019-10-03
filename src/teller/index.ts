@@ -206,17 +206,10 @@ export class CiqStoryTeller {
       if (nodeIdToTextNode[storyNode.nodeId]) {
         return nodeIdToTextNode[storyNode.nodeId];
       }
-      let textNode: CiqStoryRawNode;
-      switch (nodeType) {
-        case 3:
-          textNode = this.idocument.createTextNode(storyNode.nodeValue || '');
-          break;
-        case 8:
-          textNode = this.idocument.createComment(storyNode.nodeValue || '');
-          break;
-        default:
-          throw new Error(`its logically impossible to get here but ts doesn't know that`);
-      }
+      const textNode: CiqStoryRawNode = nodeType === 3 ?
+        this.idocument.createTextNode(storyNode.nodeValue || '') :
+        /// nodeType === 8
+        this.idocument.createComment(storyNode.nodeValue || '');
       textNode.__ciqStoryNodeId = storyNode.nodeId;
       nodeIdToTextNode[storyNode.nodeId] = textNode;
       return textNode;

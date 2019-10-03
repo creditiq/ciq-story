@@ -2,7 +2,7 @@ import { IntId } from '../int-id';
 
 export type CiqStoryRawNode = Node & { __ciqStoryNodeId?: string };
 
-export class CiqStoryNodeId extends String {
+export class CiqStoryNodeId {
   private intId: IntId = new IntId();
   public getStoryNodeId(node: CiqStoryRawNode, debug?: boolean): string {
     if (node === document) {

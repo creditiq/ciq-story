@@ -1,4 +1,6 @@
-import { CiqStoryNode, CiqStoryRawNode, CiqStoryTwist } from '../types';
+import * as _ from 'lodash';
+import { walkAddNodeTree, walkAddTree } from '../journalist';
+import { CiqStoryNode, CiqStoryRawNode, CiqStoryTwist, createAttributesTwist, createChildListTwist, createEventTwist, createResizeTwist } from '../types';
 import { isElement, isTextInput } from '../util';
 import { ClickBubble } from './ClickBubble';
 import { macCursorDataUri } from './mac-cursor';
@@ -40,17 +42,26 @@ const createPointer = () => {
   return pointer;
 };
 
+function noNull<T>(thing: T | null): T | undefined {
+  return thing === null ? undefined : thing;
+}
+
+function getNumberFromPx(px: string | null): number {
+  return px != null ? parseFloat(px.replace('px', '')) : -1;
+}
+
 export class CiqStoryTeller {
   public container: HTMLElement;
   private iframe: HTMLIFrameElement;
   private idocument: Document;
   private pointer: HTMLElement;
   private storyIndex: number = 0;
-  private story: CiqStoryTwist[];
+  private twists: CiqStoryTwist[];
   private waitingOnNextFrame: boolean = false;
   private currentClickBubble?: ClickBubble;
   private nextFrameTimeoutId: number | undefined;
-  constructor() {
+  private reverseTwistsById: Record<string, CiqStoryTwist | CiqStoryTwist[] | undefined> = {};
+  constructor(private onPlayFrame: (frameIndex: number) => void) {
     this.container = document.createElement('div');
     this.container.setAttribute('style', `
       position: relative;
@@ -80,12 +91,12 @@ export class CiqStoryTeller {
   }
 
   addTwists(twists: CiqStoryTwist[]) {
-    this.setTwists([...this.story, ...twists]);
+    this.setTwists([...this.twists, ...twists]);
   }
 
   setTwists(twists: CiqStoryTwist[]) {
-    this.story = [...twists].sort((t1, t2) => {
-      return t1.timeSincePageLoad - t2.timeSincePageLoad;
+    this.twists = _.sortBy([...twists], (t1) => {
+      return t1.twistId;
     });
   }
 
@@ -94,80 +105,152 @@ export class CiqStoryTeller {
     if (this.waitingOnNextFrame) {
       return;
     }
-    const thisTwist = this.story[this.storyIndex];
+    const thisTwist = this.twists[this.storyIndex];
     if (!thisTwist) {
       this.waitingOnNextFrame = false;
       return;
     }
-    const lastTwist = this.story[this.storyIndex - 1];
+    const lastTwist = this.twists[this.storyIndex - 1];
     const nextFrameDelay = Math.min(Math.ceil(thisTwist.timeSincePageLoad - (lastTwist && lastTwist.timeSincePageLoad || 0)), 1000);
     this.waitingOnNextFrame = true;
     this.nextFrameTimeoutId = window.setTimeout(() => {
       this.waitingOnNextFrame = false;
       this.playTwistSync(thisTwist);
+      this.playNextStoryFrame();
     }, nextFrameDelay);
   }
 
   pauseStory() {
     if (this.nextFrameTimeoutId !== undefined) {
       window.clearTimeout(this.nextFrameTimeoutId);
+      this.waitingOnNextFrame = false;
     }
   }
 
-  playTwistSync = (twist: CiqStoryTwist) => {
-    const targetNode = twist.targetNode && this.findNodeByNodeId(twist.targetNode.nodeId);
+  setPlayHeadToIndex(index: number) {
+    if (this.storyIndex === index) {
+      return;
+    }
+    this.playSyncFromTo(this.storyIndex, index);
+  }
+
+  playSyncFromTo(from: number, to: number) {
+    const reverse = from > to;
+    from = reverse ? from - 1 : from; // if reversing the current index has already been reversed
+    const indexes = [...Array(Math.abs(from - to + 1)).keys()].map((key) => key + Math.min(from, to));
+    (reverse ? indexes.reverse() : indexes).forEach((index) => {
+      this.storyIndex = index;
+      const origTwist = this.twists[index];
+      if (!origTwist) {
+        throw new Error(`tried to play from ${from} to ${to} but no twist found for ${index}`);
+      }
+      const twist = reverse ? this.reverseTwistsById[origTwist.twistId] : origTwist;
+      if (twist) {
+        const twists = Array.isArray(twist) ? twist : [twist];
+        twists.forEach((t) => this.playTwistSync(t, reverse));
+      }
+    });
+  }
+
+  playTwistSync = (twist: CiqStoryTwist, reverse: boolean = false) => {
+    const targetDOMNode = twist.targetNode && this.findNodeByNodeId(twist.targetNode.nodeId);
     switch (twist.type) {
       case 'childList':
+        let childReversals: CiqStoryTwist[] = [];
+
         if (twist.addedNodes) {
-          twist.addedNodes.forEach((storyNode: CiqStoryNode) => {
-            if (!targetNode) {
-              console.warn('could not find targetNode for addition', JSON.stringify(twist.targetNode));
-              return;
-            }
-            const node = this.createNode(storyNode);
-            if (node) {
-              targetNode.appendChild(node);
-            } else if (storyNode.nodeType === 1 || storyNode.nodeType === 3) {
-              throw new Error('couldnt make node for element or text node');
-            }
-          });
+          if (!reverse) {
+            childReversals =
+              [createChildListTwist(twist.twistId,
+                twist.targetNode,
+                undefined,
+                [...twist.addedNodes].reverse(),
+              )];
+          }
+          if (!targetDOMNode) {
+            console.warn('could not find targetNode for addition', JSON.stringify(twist.targetNode));
+          } else {
+            twist.addedNodes.forEach((storyNode: CiqStoryNode) => {
+
+              const node = this.createNode(storyNode);
+              if (node) {
+                targetDOMNode.appendChild(node);
+              } else if (storyNode.nodeType === 1 || storyNode.nodeType === 3) {
+                throw new Error('couldnt make node for element or text node');
+              }
+            });
+          }
         }
         if (twist.removedNodes) {
-          twist.removedNodes.forEach((storyNode: CiqStoryNode) => {
-            if (!targetNode) {
-              console.log('could not find targetNode for removal', JSON.stringify(twist.targetNode));
-              return;
-            }
-            let removeNode;
-            if (storyNode.nodeType === 3 || storyNode.nodeType === 8) {
-              removeNode = this.findTextNode(storyNode, targetNode);
-              delete nodeIdToTextNode[storyNode.nodeId];
-            } else {
-              removeNode = this.findNodeByNodeId(storyNode.nodeId, targetNode);
-            }
-            if (removeNode) {
-              if (removeNode.parentNode !== targetNode) {
-                console.log('removeNode isnt the child of the target at this point....', storyNode);
-                return;
+          if (!targetDOMNode) {
+            console.log('could not find targetNode for removal', JSON.stringify(twist.targetNode));
+          } else {
+            const removeDOMNodes = _.compact(twist.removedNodes.map((storyNode: CiqStoryNode) => {
+              let removeNode: Element | Document | Node | undefined;
+              if (storyNode.nodeType === 3 || storyNode.nodeType === 8) {
+                removeNode = this.findTextNode(storyNode, targetDOMNode);
+                delete nodeIdToTextNode[storyNode.nodeId];
+              } else {
+                removeNode = this.findNodeByNodeId(storyNode.nodeId, targetDOMNode);
               }
-              targetNode.removeChild(removeNode);
-            }
+              if (removeNode) {
+                if (removeNode.parentNode !== targetDOMNode) {
+                  console.log('removeNode isnt the child of the target at this point....', storyNode);
+                  return;
+                }
 
-          });
+                targetDOMNode.removeChild(removeNode);
+                return removeNode;
+              }
+              return;
+            }));
+            if (!reverse && removeDOMNodes.length) {
+              const reverseAddTwists = walkAddNodeTree(removeDOMNodes.reverse(), targetDOMNode, { next: () => twist.twistId });
+              childReversals = [...reverseAddTwists, ...childReversals,];
+
+            }
+          }
+        }
+        if (!reverse) {
+          this.reverseTwistsById[twist.twistId] = childReversals;
         }
         break;
       case 'attributes':
-        if (isElement(targetNode)) {
-          targetNode.setAttribute(twist.attributeName, twist.attributeValue || '');
+        if (isElement(targetDOMNode)) {
+          if (!reverse) {
+            this.reverseTwistsById[twist.twistId] =
+              createAttributesTwist(
+                twist.twistId,
+                twist.targetNode,
+                twist.attributeName,
+                noNull(targetDOMNode.getAttribute(twist.attributeName))
+              );
+          }
+          targetDOMNode.setAttribute(twist.attributeName, twist.attributeValue || '');
         }
         break;
       case 'resize':
+        if (!reverse) {
+          this.reverseTwistsById[twist.twistId] =
+            createResizeTwist(twist.twistId,
+              getNumberFromPx(this.iframe.width),
+              getNumberFromPx(this.iframe.height)
+            );
+        }
         this.container.style.width = (this.iframe.width = twist.width.toString()) + 'px';
         this.container.style.height = (this.iframe.height = twist.height.toString()) + 'px';
         break;
       case 'event':
         switch (twist.eventType) {
           case 'mousemove': {
+            if (!reverse) {
+              this.reverseTwistsById[twist.twistId] =
+                createEventTwist(twist.twistId, twist.eventType,
+                  undefined,
+                  getNumberFromPx(this.pointer.style.top),
+                  getNumberFromPx(this.pointer.style.left),
+                );
+            }
             const top = twist.clientY + 'px';
             const left = twist.clientX + 'px';
             this.pointer.style.top = top;
@@ -196,15 +279,25 @@ export class CiqStoryTeller {
             }
             break;
           case 'input':
-            if (isTextInput(targetNode)) {
-              targetNode.value = twist.textValue || '';
+            if (isTextInput(targetDOMNode)) {
+              if (!reverse) {
+                this.reverseTwistsById[twist.twistId] =
+                  createEventTwist(twist.twistId, twist.eventType,
+                    twist.targetNode,
+                    undefined, undefined,
+                    targetDOMNode.value,
+                  );
+              }
+              targetDOMNode.value = twist.textValue || '';
             }
             break;
         }
         break;
     }
-    this.storyIndex++;
-    this.playNextStoryFrame();
+    this.onPlayFrame(this.storyIndex);
+    if (!reverse) {
+      this.storyIndex++;
+    }
   }
 
   createNode(storyNode: CiqStoryNode): Node | undefined {
@@ -227,8 +320,9 @@ export class CiqStoryTeller {
         if (!storyNode.tagName) {
           throw new Error('got a story node of type 1, but not tag name, should be impossible');
         }
-        const createdNode = this.idocument.createElement(storyNode.tagName);
+        const createdNode: HTMLElement & CiqStoryRawNode = this.idocument.createElement(storyNode.tagName);
         createdNode.setAttribute('siq-story-node-id', storyNode.nodeId);
+        createdNode.__ciqStoryNodeId = storyNode.nodeId;
         const storyNodeAttrs = storyNode.attributes;
         if (storyNodeAttrs) {
           Object.keys(storyNodeAttrs).forEach((attributeName) => {

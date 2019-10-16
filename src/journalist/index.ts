@@ -7,13 +7,69 @@ import { IntId } from '../int-id';
 
 const uuid = require('uuid');
 
+export function walkAddTree(addedNodeList: NodeList, target: Node, twistIdFactory: Pick<IntId, 'next'>): CiqStoryTwist[] {
+  const addedNodes = filterAddedNodelist(addedNodeList);
+  return walkAddNodeTree(addedNodes, target, twistIdFactory);
+}
+
+export function walkAddNodeTree(addedNodes: Node[], target: Node, twistIdFactory: Pick<IntId, 'next'>) {
+  if (addedNodes.length === 0) {
+    return [];
+  }
+  const twist = makeAddTwist(addedNodes, target, twistIdFactory.next());
+  const results = _.flatten(addedNodes.map((addedNode) => {
+    if (addedNode.childNodes.length) {
+      return walkAddTree(addedNode.childNodes, addedNode, twistIdFactory);
+    }
+    return [];
+  }));
+  results.unshift(twist);
+  return results;
+}
+
+function makeCiqStoryNode(node: Node) {
+  return new CiqStoryNode(node);
+}
+
+function absolutePath(href: string) {
+  const link = document.createElement('a');
+  link.href = href;
+  return (link.protocol + '//' + link.host + link.pathname + link.search + link.hash);
+}
+
+function makeAddTwist(addedNodes: Node[], target: Node, twistId: number) {
+  return createChildListTwist(
+    twistId,
+    new CiqStoryNode(target),
+    addedNodes.map((addedNode) => {
+      const storyNode = makeCiqStoryNode(addedNode);
+      if (storyNode.tagName === 'LINK') {
+        if (storyNode.attributes && storyNode.attributes.href) {
+          const path = absolutePath(storyNode.attributes.href);
+          storyNode.attributes.href = path;
+        }
+      } else if (storyNode.tagName === 'SCRIPT') {
+        storyNode.tagName = 'POOP-SCRIPT'; // don't let these execute
+        const attributes = storyNode.attributes || {};
+        attributes.style = `${attributes.style}; display: none;`;
+        storyNode.attributes = attributes;
+      }
+      return storyNode;
+    })
+  );
+}
+
+function filterAddedNodelist(addedNodeList: NodeList): Node[] {
+  return Array.prototype.slice.call(addedNodeList).filter(() => true);
+}
+
 export function createJournalist(
   sendBatch: (twistBatch: { storyId: string, batchId: number, twists: CiqStoryTwist[], isBeforeUnload?: boolean }) => any,
   opts: { debugMode?: boolean, batchIntervalMs?: number, noBatchInterval?: boolean } = {}
 ) {
 
   let recordedTwists: CiqStoryTwist[];
-  const twistId = new IntId();
+  const twistIdFactory = new IntId();
   const batchId = new IntId();
   const story = {
     id: uuid.v4(),
@@ -21,56 +77,7 @@ export function createJournalist(
   };
 
   // get initial dom state
-  recordedTwists = walkAddTree(document.childNodes, document);
-
-  function makeCiqStoryNode(node: Node) {
-    return new CiqStoryNode(node);
-  }
-
-  function absolutePath(href: string) {
-    const link = document.createElement('a');
-    link.href = href;
-    return (link.protocol + '//' + link.host + link.pathname + link.search + link.hash);
-  }
-
-  function makeAddTwist(addedNodes: Node[], target: Node) {
-    return createChildListTwist(
-      twistId.next(),
-      new CiqStoryNode(target),
-      addedNodes.map((addedNode) => {
-        const storyNode = makeCiqStoryNode(addedNode);
-        if (storyNode.tagName === 'LINK') {
-          if (storyNode.attributes && storyNode.attributes.href) {
-            const path = absolutePath(storyNode.attributes.href);
-            storyNode.attributes.href = path;
-          }
-        } else if (storyNode.tagName === 'SCRIPT') {
-          storyNode.tagName = 'POOP-SCRIPT'; // don't let these execute
-          const attributes = storyNode.attributes || {};
-          attributes.style = `${attributes.style}; display: none;`;
-          storyNode.attributes = attributes;
-        }
-        return storyNode;
-      })
-    );
-  }
-
-  function filterAddedNodelist(addedNodeList: NodeList): Node[] {
-    return Array.prototype.slice.call(addedNodeList).filter(() => true);
-  }
-
-  function walkAddTree(addedNodeList: NodeList, target: Node): CiqStoryTwist[] {
-    const addedNodes = filterAddedNodelist(addedNodeList);
-    const twist = makeAddTwist(addedNodes, target);
-    const results = _.flatten(addedNodes.map((addedNode) => {
-      if (addedNode.childNodes.length) {
-        return walkAddTree(addedNode.childNodes, addedNode);
-      }
-      return [];
-    }));
-    results.unshift(twist);
-    return results;
-  }
+  recordedTwists = walkAddTree(document.childNodes, document, twistIdFactory);
 
   function getHighestParent(elem: Node) {
     let parent = elem.parentNode;
@@ -95,11 +102,11 @@ export function createJournalist(
         switch (mutation.type) {
           case 'childList':
             if (mutation.addedNodes.length) {
-              accum = [...accum, ...walkAddTree(mutation.addedNodes, mutation.target)];
+              accum = [...accum, ...walkAddTree(mutation.addedNodes, mutation.target, twistIdFactory)];
             }
             if (mutation.removedNodes.length) {
               const twist = createChildListTwist(
-                twistId.next(),
+                twistIdFactory.next(),
                 new CiqStoryNode(mutation.target),
                 undefined,
                 Array.prototype.slice.call(mutation.removedNodes).map(makeCiqStoryNode),
@@ -116,7 +123,7 @@ export function createJournalist(
             }
             const attributeValue = valueOrUndefined(mutation.target.getAttribute(attributeName));
             const twist = createAttributesTwist(
-              twistId.next(),
+              twistIdFactory.next(),
               new CiqStoryNode(mutation.target),
               attributeName,
               attributeValue,
@@ -139,7 +146,7 @@ export function createJournalist(
 
   function makeAndAddResizeTwist() {
     const resizeTwist = createResizeTwist(
-      twistId.next(),
+      twistIdFactory.next(),
       window.innerWidth,
       window.innerHeight,
     );
@@ -166,7 +173,7 @@ export function createJournalist(
           }
         // tslint:disable-next-line:no-switch-case-fall-through
         case 'mousemove':
-          twist = createEventTwist(twistId.next(), e.type, targetNode);
+          twist = createEventTwist(twistIdFactory.next(), e.type, targetNode);
           if (e instanceof MouseEvent) {
             twist.clientX = e.clientX;
             twist.clientY = e.clientY;
@@ -176,7 +183,7 @@ export function createJournalist(
           if (target instanceof Node) {
             targetNode = new CiqStoryNode(target);
           }
-          twist = createEventTwist(twistId.next(), e.type, targetNode);
+          twist = createEventTwist(twistIdFactory.next(), e.type, targetNode);
           if (target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement) {
             twist.textValue = target.value;
           }

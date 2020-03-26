@@ -12,6 +12,7 @@ import {
 import { isElement, isTextInput } from '../util';
 import { ClickBubble } from './ClickBubble';
 import { macCursorDataUri } from './mac-cursor';
+const SVG_TAG_NAMES = _.keyBy(require('svg-tag-names'));
 
 const nodeIdToTextNode: Record<string, Node> = {};
 
@@ -336,7 +337,10 @@ export class CiqStoryTeller {
         if (!storyNode.tagName) {
           throw new Error('got a story node of type 1, but not tag name, should be impossible');
         }
-        const createdNode: HTMLElement & CiqStoryRawNode = this.idocument.createElement(storyNode.tagName);
+        const createdNode: (HTMLElement | SVGElement) & CiqStoryRawNode =
+          SVG_TAG_NAMES[storyNode.tagName] ?
+            this.idocument.createElementNS('http://www.w3.org/2000/svg', storyNode.tagName) :
+            this.idocument.createElement(storyNode.tagName);
         createdNode.setAttribute('siq-story-node-id', storyNode.nodeId);
         createdNode.__ciqStoryNodeId = storyNode.nodeId;
         const storyNodeAttrs = storyNode.attributes;

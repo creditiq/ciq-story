@@ -17,65 +17,6 @@ function walkAddTree(
   return walkAddNodeTree(filterAddedNodelist(addedNodeList), target, twistIdFactory, nextSibling, nodeCB);
 }
 
-function walkAddTreeGetStylePromises(
-  addedNodeList: NodeList,
-  target: Node,
-  twistIdFactory: Pick<IntId, 'next'>,
-  nextSibling?: CiqStoryNode,
-) {
-  let styleTwists: Array<Promise<CiqStoryTwist[]>> = [];
-  const addTwists = walkAddTree(addedNodeList, target, twistIdFactory, nextSibling, (node) => {
-    const styleTwistPromise = getStyleLoadedTwists(node, twistIdFactory);
-    if (styleTwistPromise) {
-      styleTwists = [...styleTwists, styleTwistPromise];
-    }
-  });
-  return {
-    addTwists,
-    styleTwists,
-  };
-}
-
-function isStyle(node: Node): node is HTMLStyleElement {
-  const nodeName = node.nodeName.toUpperCase();
-  return nodeName === 'STYLE';
-}
-
-function isCssStyle(sheet: StyleSheet): sheet is CSSStyleSheet {
-  return (sheet as any).cssRules != null;
-}
-
-function getRuleTwistsFromNode(addedNode: HTMLStyleElement, twistIdFactory: Pick<IntId, 'next'>, ) {
-  try {
-    if (addedNode.sheet && isCssStyle(addedNode.sheet)) {
-      const rulesArray: CSSRule[] = Array.prototype.slice.call(addedNode.sheet.cssRules);
-      if (rulesArray.length === 0) {
-        console.log('No Rules for sheet on: ', addedNode);
-      }
-      return rulesArray.map((rule) => makeAddTwist(
-        [document.createTextNode(rule.cssText)],
-        addedNode,
-        twistIdFactory.next(),
-      ));
-    }
-  } catch (e) {
-    // nothing
-  }
-  return undefined;
-}
-
-function getStyleLoadedTwists(addedNode: Node, twistIdFactory: Pick<IntId, 'next'>, ): Promise<CiqStoryTwist[]> | undefined {
-  if (isStyle(addedNode) && !addedNode.textContent?.trim()) {
-    const twists = getRuleTwistsFromNode(addedNode, twistIdFactory);
-    if (twists) {
-      return new Promise((resolve) => {
-        resolve(twists); // if we later need to wait for loading of link styles this promise will be useful
-      });
-    }
-  }
-  return undefined;
-}
-
 export function walkAddNodeTree(
   addedNodes: Node[],
   target: Node,
@@ -140,6 +81,8 @@ function filterAddedNodelist(addedNodeList: NodeList): Node[] {
   return Array.prototype.slice.call(addedNodeList).filter(() => true);
 }
 
+type StyleNodeWatch = { node: HTMLStyleElement, previousTextNode?: Node };
+
 export function createJournalist(
   sendBatch: (twistBatch: { storyId: string, batchId: number, twists: CiqStoryTwist[], isBeforeUnload?: boolean }) => any,
   opts: { debugMode?: boolean, batchIntervalMs?: number, noBatchInterval?: boolean } = {}
@@ -152,19 +95,57 @@ export function createJournalist(
     id: uuid.v4(),
     timestamp: Date.now(),
   };
+  const styleNodesToText: Record<string, StyleNodeWatch> = {}; // nodeId to cssText
 
-  function handleStyleTwists(styleTwists: Array<Promise<CiqStoryTwist[]>>) {
-    styleTwists.forEach(async (twistPromise) => {
-      const styleTwist = await twistPromise;
-      recordedTwists = recordedTwists.concat(styleTwist);
+  function walkAddTreeGetStylePromises(
+    addedNodeList: NodeList,
+    target: Node,
+    _twistIdFactory: Pick<IntId, 'next'>,
+    nextSibling?: CiqStoryNode,
+  ) {
+    const styleTwists: Array<Promise<CiqStoryTwist[]>> = [];
+    const addTwists = walkAddTree(addedNodeList, target, _twistIdFactory, nextSibling, (node) => {
+      processStyleTags(node);
     });
+    return addTwists;
+  }
+
+  function isStyle(node: Node): node is HTMLStyleElement {
+    const nodeName = node.nodeName.toUpperCase();
+    return nodeName === 'STYLE';
+  }
+
+  function isCssStyle(sheet: StyleSheet): sheet is CSSStyleSheet {
+    return (sheet as any).cssRules != null;
+  }
+
+  function getRuleTextFromNode(addedNode: HTMLStyleElement) {
+    try {
+      if (addedNode.sheet && isCssStyle(addedNode.sheet)) {
+        const rulesArray: CSSRule[] = Array.prototype.slice.call(addedNode.sheet.cssRules);
+        if (rulesArray.length === 0) {
+          console.log('No Rules for sheet on: ', addedNode);
+        }
+        const ruleTexts = rulesArray.map((rule) => rule.cssText);
+        return ruleTexts.join('\n');
+      }
+    } catch (e) {
+      // nothing
+    }
+    return undefined;
+  }
+
+  function processStyleTags(addedNode: Node): StyleNodeWatch | undefined {
+    if (isStyle(addedNode) && !addedNode.textContent?.trim()) {
+      return styleNodesToText[new CiqStoryNode(addedNode).nodeId] = { node: addedNode, previousTextNode: undefined };
+    }
+    return undefined;
   }
 
   function captureInitialDOMState() {
-    const { addTwists, styleTwists } = walkAddTreeGetStylePromises(document.childNodes, document, twistIdFactory);
+    const addTwists = walkAddTreeGetStylePromises(document.childNodes, document, twistIdFactory);
     // get initial dom state
     recordedTwists = addTwists;
-    handleStyleTwists(styleTwists);
   }
   captureInitialDOMState();
 
@@ -181,6 +162,27 @@ export function createJournalist(
     return getHighestParent(elem) === document;
   }
 
+  setInterval(() => {
+    const newTwists = _.compact(_.flatten(Object.values(styleNodesToText).map(({ node, previousTextNode }) => {
+      const ruleText = getRuleTextFromNode(node);
+      if (ruleText && ruleText !== previousTextNode?.textContent) {
+        const newTextNode = document.createTextNode(ruleText);
+        styleNodesToText[CiqStoryNode.idFactory.getStoryNodeId(node)] = {
+          node,
+          previousTextNode: newTextNode
+        };
+
+        const removal = previousTextNode && createRemoveTwist([previousTextNode], node, twistIdFactory.next());
+        const addition = makeAddTwist([newTextNode], node, twistIdFactory.next());
+        return _.compact([removal, addition]);
+      }
+      return undefined;
+    })));
+    if (newTwists.length > 0) {
+      recordedTwists = recordedTwists.concat(newTwists);
+    }
+  }, 100);
+
   const journalistObserver = new MutationObserver((mutations: MutationRecord[]) => {
     const twists: CiqStoryTwist[] = mutations.reduce(
       (accum: CiqStoryTwist[], mutation: MutationRecord) => {
@@ -191,7 +193,7 @@ export function createJournalist(
         switch (mutation.type) {
           case 'childList':
             if (mutation.addedNodes.length) {
-              const { addTwists, styleTwists } = walkAddTreeGetStylePromises(
+              const addTwists = walkAddTreeGetStylePromises(
                 mutation.addedNodes,
                 mutation.target,
                 twistIdFactory,
@@ -201,15 +203,13 @@ export function createJournalist(
                 ...accum,
                 ...addTwists
               ];
-              handleStyleTwists(styleTwists);
             }
             if (mutation.removedNodes.length) {
-              const twist = createChildListTwist(
+              const twist = createRemoveTwist(
+                Array.prototype.slice.call(mutation.removedNodes),
+                mutation.target,
                 twistIdFactory.next(),
-                new CiqStoryNode(mutation.target),
-                undefined,
-                Array.prototype.slice.call(mutation.removedNodes).map(makeCiqStoryNode),
-                mutation.nextSibling ? makeCiqStoryNode(mutation.nextSibling) : undefined,
+                mutation.nextSibling || undefined,
               );
               accum.push(twist);
             }
@@ -243,6 +243,16 @@ export function createJournalist(
   journalistObserver.observe(document,
     { childList: true, subtree: true, attributes: true }
   );
+
+  function createRemoveTwist(removedNodes: Node[], target: Node, twistId: number, nextSibling?: Node) {
+    return createChildListTwist(
+      twistId,
+      new CiqStoryNode(target),
+      undefined,
+      removedNodes.map(makeCiqStoryNode),
+      nextSibling ? makeCiqStoryNode(nextSibling) : undefined
+    );
+  }
 
   function makeAndAddResizeTwist() {
     const resizeTwist = createResizeTwist(

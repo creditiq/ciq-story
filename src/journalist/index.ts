@@ -7,19 +7,94 @@ import { IntId } from '../int-id';
 
 const uuid = require('uuid');
 
-export function walkAddTree(addedNodeList: NodeList, target: Node, twistIdFactory: Pick<IntId, 'next'>): CiqStoryTwist[] {
-  const addedNodes = filterAddedNodelist(addedNodeList);
-  return walkAddNodeTree(addedNodes, target, twistIdFactory);
+function walkAddTree(
+  addedNodeList: NodeList,
+  target: Node,
+  twistIdFactory: Pick<IntId, 'next'>,
+  nextSibling?: CiqStoryNode,
+  nodeCB?: <T>(node: Node) => T | void,
+) {
+  return walkAddNodeTree(filterAddedNodelist(addedNodeList), target, twistIdFactory, nextSibling, nodeCB);
 }
 
-export function walkAddNodeTree(addedNodes: Node[], target: Node, twistIdFactory: Pick<IntId, 'next'>) {
+function walkAddTreeGetStylePromises(
+  addedNodeList: NodeList,
+  target: Node,
+  twistIdFactory: Pick<IntId, 'next'>,
+  nextSibling?: CiqStoryNode,
+) {
+  let styleTwists: Array<Promise<CiqStoryTwist[]>> = [];
+  const addTwists = walkAddTree(addedNodeList, target, twistIdFactory, nextSibling, (node) => {
+    const styleTwistPromise = getStyleLoadedTwists(node, twistIdFactory);
+    if (styleTwistPromise) {
+      styleTwists = [...styleTwists, styleTwistPromise];
+    }
+  });
+  return {
+    addTwists,
+    styleTwists,
+  };
+}
+
+function isStyle(node: Node): node is HTMLStyleElement {
+  const nodeName = node.nodeName.toUpperCase();
+  return nodeName === 'STYLE';
+}
+
+function isCssStyle(sheet: StyleSheet): sheet is CSSStyleSheet {
+  return (sheet as any).cssRules != null;
+}
+
+function getRuleTwistsFromNode(addedNode: HTMLStyleElement, twistIdFactory: Pick<IntId, 'next'>, ) {
+  try {
+    if (addedNode.sheet && isCssStyle(addedNode.sheet)) {
+      const rulesArray: CSSRule[] = Array.prototype.slice.call(addedNode.sheet.cssRules);
+      if (rulesArray.length === 0) {
+        console.log('No Rules for sheet on: ', addedNode);
+      }
+      return rulesArray.map((rule) => makeAddTwist(
+        [document.createTextNode(rule.cssText)],
+        addedNode,
+        twistIdFactory.next(),
+      ));
+    }
+  } catch (e) {
+    // nothing
+  }
+  return undefined;
+}
+
+function getStyleLoadedTwists(addedNode: Node, twistIdFactory: Pick<IntId, 'next'>, ): Promise<CiqStoryTwist[]> | undefined {
+  if (isStyle(addedNode) && !addedNode.textContent?.trim()) {
+    const twists = getRuleTwistsFromNode(addedNode, twistIdFactory);
+    if (twists) {
+      return new Promise((resolve) => {
+        resolve(twists); // if we later need to wait for loading of link styles this promise will be useful
+      });
+    }
+  }
+  return undefined;
+}
+
+export function walkAddNodeTree(
+  addedNodes: Node[],
+  target: Node,
+  twistIdFactory: Pick<IntId, 'next'>,
+  nextSibling?: CiqStoryNode,
+  nodeCB?: <T>(node: Node) => T | void,
+): CiqStoryTwist[] {
   if (addedNodes.length === 0) {
     return [];
   }
-  const twist = makeAddTwist(addedNodes, target, twistIdFactory.next());
+  // top one gets the siblings, for the rest it doesn't strictly matter
+  const twist = makeAddTwist(addedNodes, target, twistIdFactory.next(), nextSibling);
   const results = _.flatten(addedNodes.map((addedNode) => {
+    if (nodeCB) {
+      nodeCB(addedNode);
+    }
     if (addedNode.childNodes.length) {
-      return walkAddTree(addedNode.childNodes, addedNode, twistIdFactory);
+      const addTwists = walkAddTree(addedNode.childNodes, addedNode, twistIdFactory, undefined, nodeCB);
+      return addTwists;
     }
     return [];
   }));
@@ -37,7 +112,7 @@ function absolutePath(href: string) {
   return (link.protocol + '//' + link.host + link.pathname + link.search + link.hash);
 }
 
-function makeAddTwist(addedNodes: Node[], target: Node, twistId: number) {
+function makeAddTwist(addedNodes: Node[], target: Node, twistId: number, nextSibling?: CiqStoryNode) {
   return createChildListTwist(
     twistId,
     new CiqStoryNode(target),
@@ -55,7 +130,9 @@ function makeAddTwist(addedNodes: Node[], target: Node, twistId: number) {
         storyNode.attributes = attributes;
       }
       return storyNode;
-    })
+    }),
+    undefined,
+    nextSibling,
   );
 }
 
@@ -68,7 +145,7 @@ export function createJournalist(
   opts: { debugMode?: boolean, batchIntervalMs?: number, noBatchInterval?: boolean } = {}
 ) {
 
-  let recordedTwists: CiqStoryTwist[];
+  let recordedTwists: CiqStoryTwist[] = [];
   const twistIdFactory = new IntId();
   const batchId = new IntId();
   const story = {
@@ -76,8 +153,20 @@ export function createJournalist(
     timestamp: Date.now(),
   };
 
-  // get initial dom state
-  recordedTwists = walkAddTree(document.childNodes, document, twistIdFactory);
+  function handleStyleTwists(styleTwists: Array<Promise<CiqStoryTwist[]>>) {
+    styleTwists.forEach(async (twistPromise) => {
+      const styleTwist = await twistPromise;
+      recordedTwists = recordedTwists.concat(styleTwist);
+    });
+  }
+
+  function captureInitialDOMState() {
+    const { addTwists, styleTwists } = walkAddTreeGetStylePromises(document.childNodes, document, twistIdFactory);
+    // get initial dom state
+    recordedTwists = addTwists;
+    handleStyleTwists(styleTwists);
+  }
+  captureInitialDOMState();
 
   function getHighestParent(elem: Node) {
     let parent = elem.parentNode;
@@ -102,7 +191,17 @@ export function createJournalist(
         switch (mutation.type) {
           case 'childList':
             if (mutation.addedNodes.length) {
-              accum = [...accum, ...walkAddTree(mutation.addedNodes, mutation.target, twistIdFactory)];
+              const { addTwists, styleTwists } = walkAddTreeGetStylePromises(
+                mutation.addedNodes,
+                mutation.target,
+                twistIdFactory,
+                mutation.nextSibling ? makeCiqStoryNode(mutation.nextSibling) : undefined
+              );
+              accum = [
+                ...accum,
+                ...addTwists
+              ];
+              handleStyleTwists(styleTwists);
             }
             if (mutation.removedNodes.length) {
               const twist = createChildListTwist(
@@ -110,6 +209,7 @@ export function createJournalist(
                 new CiqStoryNode(mutation.target),
                 undefined,
                 Array.prototype.slice.call(mutation.removedNodes).map(makeCiqStoryNode),
+                mutation.nextSibling ? makeCiqStoryNode(mutation.nextSibling) : undefined,
               );
               accum.push(twist);
             }

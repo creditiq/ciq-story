@@ -16,6 +16,7 @@ export type ChildListTwist = BaseTwist & TargetTwist & {
   type: 'childList';
   addedNodes: CiqStoryNode[];
   removedNodes: CiqStoryNode[];
+  nextSibling?: CiqStoryNode;
 };
 
 export type AttributesTwist = BaseTwist & TargetTwist & {
@@ -86,11 +87,13 @@ export const createChildListTwist = (
   twistId: number,
   targetNode: CiqStoryNode,
   addedNodes: CiqStoryNode[] = [],
-  removedNodes: CiqStoryNode[] = []
+  removedNodes: CiqStoryNode[] = [],
+  nextSibling?: CiqStoryNode,
 ): ChildListTwist => ({
   twistId,
   addedNodes,
   removedNodes,
+  nextSibling,
   targetNode,
   type: 'childList',
   timeSincePageLoad: performance.now()

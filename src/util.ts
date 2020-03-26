@@ -11,3 +11,7 @@ export function isTextInput(node: Node | Element | Document | undefined): node i
 export function isHtmlElement(node: Node | Element | Document | undefined): node is HTMLElement {
   return node != undefined && (node as HTMLElement).innerHTML !== undefined;
 }
+
+export function isPromise<T>(p: Promise<T> | T): p is Promise<T> {
+  return !!p && (p as any).then !== undefined;
+}

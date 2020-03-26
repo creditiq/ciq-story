@@ -1,6 +1,14 @@
 import * as _ from 'lodash';
-import { walkAddNodeTree, walkAddTree } from '../journalist';
-import { CiqStoryNode, CiqStoryRawNode, CiqStoryTwist, createAttributesTwist, createChildListTwist, createEventTwist, createResizeTwist } from '../types';
+import { walkAddNodeTree } from '../journalist';
+import {
+  CiqStoryNode,
+  CiqStoryRawNode,
+  CiqStoryTwist,
+  createAttributesTwist,
+  createChildListTwist,
+  createEventTwist,
+  createResizeTwist
+} from '../types';
 import { isElement, isTextInput } from '../util';
 import { ClickBubble } from './ClickBubble';
 import { macCursorDataUri } from './mac-cursor';
@@ -161,20 +169,23 @@ export class CiqStoryTeller {
         if (twist.addedNodes) {
           if (!reverse) {
             childReversals =
-              [createChildListTwist(twist.twistId,
+              [createChildListTwist(
+                twist.twistId,
                 twist.targetNode,
                 undefined,
                 [...twist.addedNodes].reverse(),
+                twist.nextSibling,
               )];
           }
           if (!targetDOMNode) {
             console.warn('could not find targetNode for addition', JSON.stringify(twist.targetNode));
           } else {
+            const nextSiblingNode = twist.nextSibling && this.findNodeByNodeId(twist.nextSibling.nodeId, targetDOMNode) || null;
             twist.addedNodes.forEach((storyNode: CiqStoryNode) => {
 
               const node = this.createNode(storyNode);
               if (node) {
-                targetDOMNode.appendChild(node);
+                targetDOMNode.insertBefore(node, nextSiblingNode);
               } else if (storyNode.nodeType === 1 || storyNode.nodeType === 3) {
                 throw new Error('couldnt make node for element or text node');
               }
@@ -205,7 +216,12 @@ export class CiqStoryTeller {
               return;
             }));
             if (!reverse && removeDOMNodes.length) {
-              const reverseAddTwists = walkAddNodeTree(removeDOMNodes.reverse(), targetDOMNode, { next: () => twist.twistId });
+              const reverseAddTwists = walkAddNodeTree(
+                removeDOMNodes.reverse(),
+                targetDOMNode,
+                { next: () => twist.twistId },
+                twist.nextSibling,
+              );
               childReversals = [...reverseAddTwists, ...childReversals,];
 
             }
@@ -340,6 +356,9 @@ export class CiqStoryTeller {
         node = createdNode;
       }
       return node;
+    }
+    if (nodeType === 10) {
+      return undefined; // we'll ignore doctype for now
     }
     console.warn(`got story node with type ${nodeType} which we don't yet understand enough to render sollllyyy`);
     return undefined;

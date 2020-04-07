@@ -6,6 +6,7 @@ import * as _ from 'lodash';
 import { IntId } from '../int-id';
 
 const uuid = require('uuid');
+export const CIQ_STORY_OBSCURED_CLASS = 'ciq-obscured';
 
 function walkAddTree(
   addedNodeList: NodeList,
@@ -96,6 +97,7 @@ export function createJournalist(
     timestamp: Date.now(),
   };
   const styleNodesToText: Record<string, StyleNodeWatch> = {}; // nodeId to cssText
+  const obscuredNodes: Record<string, true | undefined> = {};
 
   function walkAddTreeGetStylePromises(
     addedNodeList: NodeList,
@@ -103,7 +105,6 @@ export function createJournalist(
     _twistIdFactory: Pick<IntId, 'next'>,
     nextSibling?: CiqStoryNode,
   ) {
-    const styleTwists: Array<Promise<CiqStoryTwist[]>> = [];
     const addTwists = walkAddTree(addedNodeList, target, _twistIdFactory, nextSibling, (node) => {
       processStyleTags(node);
     });
@@ -142,10 +143,81 @@ export function createJournalist(
     return undefined;
   }
 
+  function classHasCiqObscured(classAttribute: string | undefined) {
+    return classAttribute?.includes(CIQ_STORY_OBSCURED_CLASS);
+  }
+
+  function isCiqNodeObscured(storyNode: CiqStoryNode) {
+    return !!obscuredNodes[storyNode.nodeId];
+  }
+
+  function obscureValue(value: string): string;
+  function obscureValue(value: string | undefined): string | undefined;
+  function obscureValue(value: string | undefined) {
+    return value?.replace(/./g, '*');
+  }
+
+  function beEvilAndMutateNodeValueIfObscured(node: CiqStoryNode, targetNode: CiqStoryNode) {
+    if (!isCiqNodeObscured(targetNode)) {
+      return;
+    }
+    if (node.nodeType === 3) {
+      node.nodeValue = obscureValue(node.nodeValue);
+    }
+    if (node.attributes?.value) {
+      node.attributes.value = obscureValue(node.attributes.value);
+    }
+  }
+
+  function processRecordedTwist(twist: CiqStoryTwist) {
+    switch (twist.type) {
+      case 'childList': {
+        twist.addedNodes.map((node) => {
+          if (classHasCiqObscured(node.attributes?.class)) {
+            obscuredNodes[node.nodeId] = true;
+          }
+          beEvilAndMutateNodeValueIfObscured(node, twist.targetNode);
+        });
+        twist.removedNodes.forEach((node) => {
+          // do this first. if it's obscured we want to still obscure any attribute before unobscuring it
+          beEvilAndMutateNodeValueIfObscured(node, twist.targetNode);
+
+          if (isCiqNodeObscured(node)) {
+            obscuredNodes[node.nodeId] = undefined;
+          }
+        });
+        break;
+      }
+      case 'attributes': {
+        if (twist.attributeName === 'class') {
+          if (classHasCiqObscured(twist.attributeValue)) {
+            obscuredNodes[twist.targetNode.nodeId] = true;
+          } else if (isCiqNodeObscured(twist.targetNode)) {
+            obscuredNodes[twist.targetNode.nodeId] = undefined;
+          }
+        }
+        if (isCiqNodeObscured(twist.targetNode) && twist.attributeName === 'value') {
+          twist.attributeValue = obscureValue(twist.attributeValue);
+        }
+        break;
+      }
+
+    }
+    return twist;
+  }
+
+  function recordTwists(twists: CiqStoryTwist[] | CiqStoryTwist) {
+    if (Array.isArray(twists)) {
+      recordedTwists = [...recordedTwists, ...twists.map(processRecordedTwist)];
+    } else {
+      recordedTwists.push(processRecordedTwist(twists));
+    }
+  }
+
   function captureInitialDOMState() {
     const addTwists = walkAddTreeGetStylePromises(document.childNodes, document, twistIdFactory);
     // get initial dom state
-    recordedTwists = addTwists;
+    recordTwists(addTwists);
   }
   captureInitialDOMState();
 
@@ -179,7 +251,7 @@ export function createJournalist(
       return undefined;
     })));
     if (newTwists.length > 0) {
-      recordedTwists = recordedTwists.concat(newTwists);
+      recordTwists(newTwists);
     }
   }, 100);
 
@@ -237,7 +309,7 @@ export function createJournalist(
 
         return accum;
       }, []);
-    recordedTwists = recordedTwists.concat(twists);
+    recordTwists(twists);
   });
 
   journalistObserver.observe(document,
@@ -260,7 +332,7 @@ export function createJournalist(
       window.innerWidth,
       window.innerHeight,
     );
-    recordedTwists.push(resizeTwist);
+    recordTwists(resizeTwist);
   }
 
   window.addEventListener('resize', (e) => {
@@ -300,7 +372,7 @@ export function createJournalist(
           break;
       }
       if (twist) {
-        recordedTwists.push(twist);
+        recordTwists(twist);
       }
     }, true);
   });

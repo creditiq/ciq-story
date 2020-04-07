@@ -1,6 +1,6 @@
 {
   "name": "ciq-story",
-  "version": "2.2.1",
+  "version": "2.3.0",
   "main": "dist/index.js",
   "scripts": {
     "postinstall": "if ! pwd | grep -q node_modules ; then patch-package; fi",

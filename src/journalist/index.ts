@@ -201,7 +201,14 @@ export function createJournalist(
         }
         break;
       }
-
+      case 'event': {
+        // for eventType 'input' but make it more robust in case we ever have other text events
+        if (twist.targetNode && twist.textValue) {
+          if (isCiqNodeObscured(twist.targetNode)) {
+            twist.textValue = obscureValue(twist.textValue);
+          }
+        }
+      }
     }
     return twist;
   }

@@ -1,3 +1,4 @@
+import lifecycle = require('page-lifecycle/dist/lifecycle.es5.js');
 import { CiqStoryTwist, createAttributesTwist, createChildListTwist, createEventTwist, createResizeTwist, EventTwist } from '../types';
 import { CiqStoryNode } from '../types';
 import { isElement, valueOrUndefined } from '../util';
@@ -84,12 +85,101 @@ function filterAddedNodelist(addedNodeList: NodeList): Node[] {
 
 type StyleNodeWatch = { node: HTMLStyleElement, previousTextNode?: Node };
 
-export function createJournalist(
-  sendBatch: (twistBatch: { storyId: string, batchId: number, twists: CiqStoryTwist[], isBeforeUnload?: boolean }) => any,
-  opts: { debugMode?: boolean, batchIntervalMs?: number, noBatchInterval?: boolean } = {}
-) {
+export enum BatchSizeUnit {
+  MEGABYTES = 'MEGABYTES',
+  KILOBYTES = 'KILOBYTES',
+  BYTES = 'BYTES',
+}
 
+export enum BatchTimeUnit {
+  SECONDS = 'SECONDS',
+  MILLISECONDS = 'MILLISECONDS',
+}
+export type BatchSize = {
+  size: number;
+  unit: BatchSizeUnit
+};
+
+export type BatchTime = {
+  time: number;
+  unit: BatchTimeUnit
+};
+
+export type Batch = {
+  storyId: string;
+  batchId: number;
+  twists: CiqStoryTwist[];
+  isBeforeUnload?: boolean;
+};
+
+export type BatchingOptions = {
+  /*  defaults to 63kb (because 64 this is the limit for a keepalive fetch,
+     gives a little space for meta) and plain numbers are presumed to be BYTES */
+  batchSize?: BatchSize | number | false;
+  /* defaults to 5 seconds, and plain numbers are presumed to be MILLISECONDS */
+  batchTime?: BatchTime | number | false;
+  sendBatch: (twistBatch: Batch) => any;
+};
+
+type Batching = {
+  batchTime: BatchTime | false;
+  batchSize: BatchSize | false;
+} & Pick<BatchingOptions, 'sendBatch'>;
+
+type JournalistOptions = {
+  debugMode?: boolean;
+  batching?: BatchingOptions,
+  // if you want to do some other method of recording
+  onRecordTwist?: (addedTwists: CiqStoryTwist) => any
+};
+
+function setupBatching(batching: BatchingOptions | undefined): Batching | undefined {
+  if (!batching) {
+    return undefined;
+  }
+  const { batchTime: _batchTime } = batching;
+  const batchTime = _batchTime === false
+    ? false
+    : !_batchTime
+      ? {
+        unit: BatchTimeUnit.SECONDS,
+        time: 5,
+      }
+      : typeof _batchTime === 'number'
+        ? {
+          unit: BatchTimeUnit.MILLISECONDS,
+          time: _batchTime,
+        }
+        : _batchTime;
+
+  const { batchSize: _batchSize } = batching;
+  const batchSize = _batchSize === false
+    ? false
+    : !_batchSize
+      ? {
+        unit: BatchSizeUnit.KILOBYTES,
+        size: 64,
+      }
+      : typeof _batchSize === 'number'
+        ? {
+          unit: BatchSizeUnit.BYTES,
+          size: _batchSize,
+        }
+        : _batchSize;
+  return {
+    ...batching,
+    batchSize,
+    batchTime,
+  };
+}
+
+export function createJournalist(
+  opts: JournalistOptions = {}
+) {
+  const batching = setupBatching(opts.batching);
+  const maxBytes = getMaxBytes();
   let recordedTwists: CiqStoryTwist[] = [];
+  let currentBatchSize = 0;
   const twistIdFactory = new IntId();
   const batchId = new IntId();
   const story = {
@@ -98,6 +188,29 @@ export function createJournalist(
   };
   const styleNodesToText: Record<string, StyleNodeWatch> = {}; // nodeId to cssText
   const obscuredNodes: Record<string, true | undefined> = {};
+  const ciqStoryJournalist = {
+    story,
+    popRecordedTwists() {
+      const twists = recordedTwists;
+      recordedTwists = [];
+      currentBatchSize = 0;
+      return twists;
+    }
+  };
+
+  function getMaxBytes() {
+    if (batching && batching.batchSize) {
+      const { unit, size } = batching.batchSize;
+      return size * (
+        unit === BatchSizeUnit.KILOBYTES
+          ? 1024
+          : unit === BatchSizeUnit.MEGABYTES
+            ? 1024 * 1024
+            : 1  // last case is BYTES
+      );
+    }
+    return undefined;
+  }
 
   function walkAddTreeGetStylePromises(
     addedNodeList: NodeList,
@@ -213,12 +326,62 @@ export function createJournalist(
     return twist;
   }
 
-  function recordTwists(twists: CiqStoryTwist[] | CiqStoryTwist) {
-    if (Array.isArray(twists)) {
-      recordedTwists = [...recordedTwists, ...twists.map(processRecordedTwist)];
-    } else {
-      recordedTwists.push(processRecordedTwist(twists));
+  function calcSizeAndAddToTotal(twist: CiqStoryTwist) {
+    const size = JSON.stringify(twist).length * 2;
+    currentBatchSize += size;
+  }
+
+  const getAndSendBatch = (isBeforeUnload?: boolean,) => {
+    const twists = ciqStoryJournalist.popRecordedTwists();
+    if (!twists || twists.length === 0 || !batching) {
+      return;
     }
+    return batching.sendBatch({
+      storyId: story.id,
+      batchId: batchId.next(),
+      twists,
+      isBeforeUnload,
+    });
+  };
+
+  if (batching) {
+    if (batching.batchTime !== false) {
+      const batchTimeInMillis = batching.batchTime.time * (batching.batchTime.unit === BatchTimeUnit.SECONDS ? 1000 : 1);
+      setInterval(() => {
+        // call inside anonymous to allow debugging overrides
+        getAndSendBatch();
+      }, batchTimeInMillis);
+    }
+    lifecycle.addEventListener('statechange', (event) => {
+      if (event.newState === 'hidden') {
+        getAndSendBatch(true);
+      }
+    });
+  }
+
+  function recordTwist(twist: CiqStoryTwist) {
+    const processedTwist = processRecordedTwist(twist);
+    recordedTwists.push(processedTwist);
+    if (maxBytes != null) {
+      calcSizeAndAddToTotal(processedTwist);
+      if (currentBatchSize > maxBytes) {
+        getAndSendBatch();
+      }
+    }
+    if (opts.onRecordTwist) {
+      opts.onRecordTwist(processedTwist);
+    }
+    return processedTwist;
+  }
+
+  function recordTwists(twists: CiqStoryTwist[] | CiqStoryTwist) {
+
+    if (Array.isArray(twists)) {
+      twists.forEach(recordTwist);
+    } else {
+      recordTwist(twists);
+    }
+
   }
 
   function captureInitialDOMState() {
@@ -384,35 +547,5 @@ export function createJournalist(
     }, true);
   });
 
-  const getAndSendBatch = (isBeforeUnload?: boolean, ) => {
-    const twists = ciqStoryJournalist.popRecordedTwists();
-    if (!twists || twists.length === 0) {
-      return;
-    }
-    return sendBatch({
-      storyId: story.id,
-      batchId: batchId.next(),
-      twists,
-      isBeforeUnload,
-    });
-  };
-
-  if (!opts.noBatchInterval) {
-    setInterval(() => {
-      // call inside anonymous to allow debugging overrides
-      getAndSendBatch();
-    }, opts.batchIntervalMs || 5000);
-  }
-
-  window.addEventListener('beforeunload', () => getAndSendBatch(true));
-
-  const ciqStoryJournalist = {
-    story,
-    popRecordedTwists() {
-      const twists = recordedTwists;
-      recordedTwists = [];
-      return twists;
-    }
-  };
   return ciqStoryJournalist;
 }

@@ -6,7 +6,7 @@ import { isElement, valueOrUndefined } from '../util';
 import * as _ from 'lodash';
 import { IntId } from '../int-id';
 
-const uuid = require('uuid');
+import * as uuid from 'uuid';
 export const CIQ_STORY_OBSCURED_CLASS = 'ciq-obscured';
 
 function walkAddTree(
@@ -96,12 +96,12 @@ export enum BatchTimeUnit {
   MILLISECONDS = 'MILLISECONDS',
 }
 export type BatchSize = {
-  size: number;
+  value: number;
   unit: BatchSizeUnit
 };
 
 export type BatchTime = {
-  time: number;
+  value: number;
   unit: BatchTimeUnit
 };
 
@@ -133,39 +133,39 @@ type JournalistOptions = {
   onRecordTwist?: (addedTwists: CiqStoryTwist) => any
 };
 
+function defaultBatchSetting<T extends BatchTime | BatchSize>(
+  batchSetting: number | false | T | undefined, fullDefault: T, unitDefault: T['unit'],
+) {
+  return batchSetting === false
+    ? batchSetting
+    : !batchSetting
+      ? fullDefault
+      : typeof batchSetting === 'number'
+        ? {
+          unit: unitDefault,
+          value: batchSetting
+        }
+        : batchSetting;
+}
+
 function setupBatching(batching: BatchingOptions | undefined): Batching | undefined {
   if (!batching) {
     return undefined;
   }
-  const { batchTime: _batchTime } = batching;
-  const batchTime = _batchTime === false
-    ? false
-    : !_batchTime
-      ? {
-        unit: BatchTimeUnit.SECONDS,
-        time: 5,
-      }
-      : typeof _batchTime === 'number'
-        ? {
-          unit: BatchTimeUnit.MILLISECONDS,
-          time: _batchTime,
-        }
-        : _batchTime;
-
-  const { batchSize: _batchSize } = batching;
-  const batchSize = _batchSize === false
-    ? false
-    : !_batchSize
-      ? {
-        unit: BatchSizeUnit.KILOBYTES,
-        size: 64,
-      }
-      : typeof _batchSize === 'number'
-        ? {
-          unit: BatchSizeUnit.BYTES,
-          size: _batchSize,
-        }
-        : _batchSize;
+  const batchTime = defaultBatchSetting(
+    batching.batchTime, {
+    unit: BatchTimeUnit.SECONDS,
+    value: 5,
+  }, BatchTimeUnit.MILLISECONDS,
+  );
+  const batchSize = defaultBatchSetting(
+    batching.batchSize,
+    {
+      unit: BatchSizeUnit.KILOBYTES,
+      value: 64,
+    },
+    BatchSizeUnit.BYTES,
+  );
   return {
     ...batching,
     batchSize,
@@ -200,7 +200,7 @@ export function createJournalist(
 
   function getMaxBytes() {
     if (batching && batching.batchSize) {
-      const { unit, size } = batching.batchSize;
+      const { unit, value: size } = batching.batchSize;
       return size * (
         unit === BatchSizeUnit.KILOBYTES
           ? 1024
@@ -336,6 +336,10 @@ export function createJournalist(
     if (!twists || twists.length === 0 || !batching) {
       return;
     }
+    /*
+      kick the batch interval off in case we got here by reaching a size limit
+    */
+    resetBatchInterval(batching);
     return batching.sendBatch({
       storyId: story.id,
       batchId: batchId.next(),
@@ -344,14 +348,22 @@ export function createJournalist(
     });
   };
 
-  if (batching) {
-    if (batching.batchTime !== false) {
-      const batchTimeInMillis = batching.batchTime.time * (batching.batchTime.unit === BatchTimeUnit.SECONDS ? 1000 : 1);
-      setInterval(() => {
+  let batchIntervalId: number | undefined;
+  function resetBatchInterval(_batching: Batching) {
+    if (batchIntervalId) {
+      clearInterval(batchIntervalId);
+    }
+    if (_batching.batchTime !== false) {
+      const batchTimeInMillis = _batching.batchTime.value * (_batching.batchTime.unit === BatchTimeUnit.SECONDS ? 1000 : 1);
+      batchIntervalId = window.setInterval(() => {
         // call inside anonymous to allow debugging overrides
         getAndSendBatch();
       }, batchTimeInMillis);
     }
+  }
+
+  if (batching) {
+    resetBatchInterval(batching);
     lifecycle.addEventListener('statechange', (event) => {
       if (event.newState === 'hidden') {
         getAndSendBatch(true);
@@ -378,8 +390,19 @@ export function createJournalist(
 
     if (Array.isArray(twists)) {
       twists.forEach(recordTwist);
+
     } else {
       recordTwist(twists);
+    }
+
+    /*
+     batch size can be larger, but if the current batch size is nearly 64kb we can't let it sit around or
+     our version of page unload won't be accepted,
+     getAndSendBatch also only works if batching is enabled and is idempotent if it's already been called for this set of twists
+    */
+
+    if (currentBatchSize > 63 * 1024) {
+      getAndSendBatch();
     }
 
   }

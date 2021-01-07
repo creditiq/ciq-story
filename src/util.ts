@@ -1,4 +1,4 @@
-export const valueOrUndefined = <T>(t: T | null | undefined) => t != null ? t : undefined;
+export const valueOrUndefined = <T>(t: T | null | undefined) => (t != null ? t : undefined);
 
 export function isElement(node: Node | Element | Document | undefined): node is Element {
   return node != undefined && (node as Element).attributes != undefined;

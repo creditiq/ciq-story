@@ -1,9 +1,6 @@
-
-declare module "page-lifecycle/dist/lifecycle.es5.js" {
-
+declare module 'page-lifecycle/dist/lifecycle.es5.js' {
   namespace Lifecycle {
     export type LifeCycleEvent = {
-
       /*  The current lifecycle state the page just transitioned to. */
       newState: string;
 

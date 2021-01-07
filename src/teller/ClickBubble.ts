@@ -1,4 +1,3 @@
-
 import * as _ from 'lodash';
 
 export class ClickBubble {
@@ -11,7 +10,7 @@ export class ClickBubble {
     this.element = document.createElement('div');
 
     const clickDiameter = 20;
-    const clickDiameterHalfNeg = -1 * clickDiameter / 2;
+    const clickDiameterHalfNeg = (-1 * clickDiameter) / 2;
     const clickColor = 'rgba(0, 0, 0, 0.3)';
     // tslint:disable:max-line-length
     const clickTransitionLength = '.1s';
@@ -40,8 +39,8 @@ export class ClickBubble {
   }
 
   setStyles = (styles: Partial<Record<keyof CSSStyleDeclaration, string>>) => {
-    _.forEach(styles, (value, name: any) => this.element.style[name] = value!);
-  }
+    _.forEach(styles, (value, name: any) => (this.element.style[name] = value!));
+  };
 
   up() {
     setTimeout(this.doUp, Math.max(100 - (Date.now() - this.downtime), 0));
@@ -53,7 +52,7 @@ export class ClickBubble {
     if (this.element.parentNode) {
       this.element.parentNode.removeChild(this.element);
     }
-  }
+  };
 
   private setUpStyle() {
     this.setStyles({
@@ -61,5 +60,4 @@ export class ClickBubble {
       height: '0',
     });
   }
-
 }

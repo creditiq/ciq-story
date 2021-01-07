@@ -14,7 +14,7 @@ function walkAddTree(
   target: Node,
   twistIdFactory: Pick<IntId, 'next'>,
   nextSibling?: CiqStoryNode,
-  nodeCB?: <T>(node: Node) => T | void,
+  nodeCB?: <T>(node: Node) => T | void
 ) {
   return walkAddNodeTree(filterAddedNodelist(addedNodeList), target, twistIdFactory, nextSibling, nodeCB);
 }
@@ -24,23 +24,25 @@ export function walkAddNodeTree(
   target: Node,
   twistIdFactory: Pick<IntId, 'next'>,
   nextSibling?: CiqStoryNode,
-  nodeCB?: <T>(node: Node) => T | void,
+  nodeCB?: <T>(node: Node) => T | void
 ): CiqStoryTwist[] {
   if (addedNodes.length === 0) {
     return [];
   }
   // top one gets the siblings, for the rest it doesn't strictly matter
   const twist = makeAddTwist(addedNodes, target, twistIdFactory.next(), nextSibling);
-  const results = _.flatten(addedNodes.map((addedNode) => {
-    if (nodeCB) {
-      nodeCB(addedNode);
-    }
-    if (addedNode.childNodes.length) {
-      const addTwists = walkAddTree(addedNode.childNodes, addedNode, twistIdFactory, undefined, nodeCB);
-      return addTwists;
-    }
-    return [];
-  }));
+  const results = _.flatten(
+    addedNodes.map((addedNode) => {
+      if (nodeCB) {
+        nodeCB(addedNode);
+      }
+      if (addedNode.childNodes.length) {
+        const addTwists = walkAddTree(addedNode.childNodes, addedNode, twistIdFactory, undefined, nodeCB);
+        return addTwists;
+      }
+      return [];
+    })
+  );
   results.unshift(twist);
   return results;
 }
@@ -52,7 +54,7 @@ function makeCiqStoryNode(node: Node) {
 function absolutePath(href: string) {
   const link = document.createElement('a');
   link.href = href;
-  return (link.protocol + '//' + link.host + link.pathname + link.search + link.hash);
+  return link.protocol + '//' + link.host + link.pathname + link.search + link.hash;
 }
 
 function makeAddTwist(addedNodes: Node[], target: Node, twistId: number, nextSibling?: CiqStoryNode) {
@@ -75,7 +77,7 @@ function makeAddTwist(addedNodes: Node[], target: Node, twistId: number, nextSib
       return storyNode;
     }),
     undefined,
-    nextSibling,
+    nextSibling
   );
 }
 
@@ -83,7 +85,7 @@ function filterAddedNodelist(addedNodeList: NodeList): Node[] {
   return Array.prototype.slice.call(addedNodeList).filter(() => true);
 }
 
-type StyleNodeWatch = { node: HTMLStyleElement, previousTextNode?: Node };
+type StyleNodeWatch = { node: HTMLStyleElement; previousTextNode?: Node };
 
 export enum BatchSizeUnit {
   MEGABYTES = 'MEGABYTES',
@@ -97,12 +99,12 @@ export enum BatchTimeUnit {
 }
 export type BatchSize = {
   value: number;
-  unit: BatchSizeUnit
+  unit: BatchSizeUnit;
 };
 
 export type BatchTime = {
   value: number;
-  unit: BatchTimeUnit
+  unit: BatchTimeUnit;
 };
 
 export type Batch = {
@@ -128,24 +130,26 @@ type Batching = {
 
 type JournalistOptions = {
   debugMode?: boolean;
-  batching?: BatchingOptions,
+  batching?: BatchingOptions;
   // if you want to do some other method of recording
-  onRecordTwist?: (addedTwists: CiqStoryTwist) => any
+  onRecordTwist?: (addedTwists: CiqStoryTwist) => any;
 };
 
 function defaultBatchSetting<T extends BatchTime | BatchSize>(
-  batchSetting: number | false | T | undefined, fullDefault: T, unitDefault: T['unit'],
+  batchSetting: number | false | T | undefined,
+  fullDefault: T,
+  unitDefault: T['unit']
 ) {
   return batchSetting === false
     ? batchSetting
     : !batchSetting
-      ? fullDefault
-      : typeof batchSetting === 'number'
-        ? {
-          unit: unitDefault,
-          value: batchSetting
-        }
-        : batchSetting;
+    ? fullDefault
+    : typeof batchSetting === 'number'
+    ? {
+        unit: unitDefault,
+        value: batchSetting,
+      }
+    : batchSetting;
 }
 
 function setupBatching(batching: BatchingOptions | undefined): Batching | undefined {
@@ -153,10 +157,12 @@ function setupBatching(batching: BatchingOptions | undefined): Batching | undefi
     return undefined;
   }
   const batchTime = defaultBatchSetting(
-    batching.batchTime, {
-    unit: BatchTimeUnit.SECONDS,
-    value: 5,
-  }, BatchTimeUnit.MILLISECONDS,
+    batching.batchTime,
+    {
+      unit: BatchTimeUnit.SECONDS,
+      value: 5,
+    },
+    BatchTimeUnit.MILLISECONDS
   );
   const batchSize = defaultBatchSetting(
     batching.batchSize,
@@ -164,7 +170,7 @@ function setupBatching(batching: BatchingOptions | undefined): Batching | undefi
       unit: BatchSizeUnit.KILOBYTES,
       value: 64,
     },
-    BatchSizeUnit.BYTES,
+    BatchSizeUnit.BYTES
   );
   return {
     ...batching,
@@ -173,9 +179,7 @@ function setupBatching(batching: BatchingOptions | undefined): Batching | undefi
   };
 }
 
-export function createJournalist(
-  opts: JournalistOptions = {}
-) {
+export function createJournalist(opts: JournalistOptions = {}) {
   const batching = setupBatching(opts.batching);
   const maxBytes = getMaxBytes();
   let recordedTwists: CiqStoryTwist[] = [];
@@ -195,18 +199,15 @@ export function createJournalist(
       recordedTwists = [];
       currentBatchSize = 0;
       return twists;
-    }
+    },
   };
 
   function getMaxBytes() {
     if (batching && batching.batchSize) {
       const { unit, value: size } = batching.batchSize;
-      return size * (
-        unit === BatchSizeUnit.KILOBYTES
-          ? 1024
-          : unit === BatchSizeUnit.MEGABYTES
-            ? 1024 * 1024
-            : 1  // last case is BYTES
+      return (
+        size *
+        (unit === BatchSizeUnit.KILOBYTES ? 1024 : unit === BatchSizeUnit.MEGABYTES ? 1024 * 1024 : 1) // last case is BYTES
       );
     }
     return undefined;
@@ -216,7 +217,7 @@ export function createJournalist(
     addedNodeList: NodeList,
     target: Node,
     _twistIdFactory: Pick<IntId, 'next'>,
-    nextSibling?: CiqStoryNode,
+    nextSibling?: CiqStoryNode
   ) {
     const addTwists = walkAddTree(addedNodeList, target, _twistIdFactory, nextSibling, (node) => {
       processStyleTags(node);
@@ -251,7 +252,7 @@ export function createJournalist(
 
   function processStyleTags(addedNode: Node): StyleNodeWatch | undefined {
     if (isStyle(addedNode) && !addedNode.textContent?.trim()) {
-      return styleNodesToText[new CiqStoryNode(addedNode).nodeId] = { node: addedNode, previousTextNode: undefined };
+      return (styleNodesToText[new CiqStoryNode(addedNode).nodeId] = { node: addedNode, previousTextNode: undefined });
     }
     return undefined;
   }
@@ -331,7 +332,7 @@ export function createJournalist(
     currentBatchSize += size;
   }
 
-  const getAndSendBatch = (isBeforeUnload?: boolean,) => {
+  const getAndSendBatch = (isBeforeUnload?: boolean) => {
     const twists = ciqStoryJournalist.popRecordedTwists();
     if (!twists || twists.length === 0 || !batching) {
       return;
@@ -387,10 +388,8 @@ export function createJournalist(
   }
 
   function recordTwists(twists: CiqStoryTwist[] | CiqStoryTwist) {
-
     if (Array.isArray(twists)) {
       twists.forEach(recordTwist);
-
     } else {
       recordTwist(twists);
     }
@@ -404,7 +403,6 @@ export function createJournalist(
     if (currentBatchSize > 63 * 1024) {
       getAndSendBatch();
     }
-
   }
 
   function captureInitialDOMState() {
@@ -428,86 +426,79 @@ export function createJournalist(
   }
 
   setInterval(() => {
-    const newTwists = _.compact(_.flatten(Object.values(styleNodesToText).map(({ node, previousTextNode }) => {
-      const ruleText = getRuleTextFromNode(node);
-      if (ruleText && ruleText !== previousTextNode?.textContent) {
-        const newTextNode = document.createTextNode(ruleText);
-        styleNodesToText[CiqStoryNode.idFactory.getStoryNodeId(node)] = {
-          node,
-          previousTextNode: newTextNode
-        };
+    const newTwists = _.compact(
+      _.flatten(
+        Object.values(styleNodesToText).map(({ node, previousTextNode }) => {
+          const ruleText = getRuleTextFromNode(node);
+          if (ruleText && ruleText !== previousTextNode?.textContent) {
+            const newTextNode = document.createTextNode(ruleText);
+            styleNodesToText[CiqStoryNode.idFactory.getStoryNodeId(node)] = {
+              node,
+              previousTextNode: newTextNode,
+            };
 
-        const removal = previousTextNode && createRemoveTwist([previousTextNode], node, twistIdFactory.next());
-        const addition = makeAddTwist([newTextNode], node, twistIdFactory.next());
-        return _.compact([removal, addition]);
-      }
-      return undefined;
-    })));
+            const removal = previousTextNode && createRemoveTwist([previousTextNode], node, twistIdFactory.next());
+            const addition = makeAddTwist([newTextNode], node, twistIdFactory.next());
+            return _.compact([removal, addition]);
+          }
+          return undefined;
+        })
+      )
+    );
     if (newTwists.length > 0) {
       recordTwists(newTwists);
     }
   }, 100);
 
   const journalistObserver = new MutationObserver((mutations: MutationRecord[]) => {
-    const twists: CiqStoryTwist[] = mutations.reduce(
-      (accum: CiqStoryTwist[], mutation: MutationRecord) => {
-        // for whatever reason we can sometimes get mutations for things that are not in the dom
-        if (!isInDom(mutation.target)) {
-          return accum;
-        }
-        switch (mutation.type) {
-          case 'childList':
-            if (mutation.addedNodes.length) {
-              const addTwists = walkAddTreeGetStylePromises(
-                mutation.addedNodes,
-                mutation.target,
-                twistIdFactory,
-                mutation.nextSibling ? makeCiqStoryNode(mutation.nextSibling) : undefined
-              );
-              accum = [
-                ...accum,
-                ...addTwists
-              ];
-            }
-            if (mutation.removedNodes.length) {
-              const twist = createRemoveTwist(
-                Array.prototype.slice.call(mutation.removedNodes),
-                mutation.target,
-                twistIdFactory.next(),
-                mutation.nextSibling || undefined,
-              );
-              accum.push(twist);
-            }
-
-            break;
-          case 'attributes': {
-            const attributeName = valueOrUndefined(mutation.attributeName);
-            if (!attributeName || !isElement(mutation.target)) {
-              console.error('got an attributes mutation with no attribute or target');
-              return accum;
-            }
-            const attributeValue = valueOrUndefined(mutation.target.getAttribute(attributeName));
-            const twist = createAttributesTwist(
-              twistIdFactory.next(),
-              new CiqStoryNode(mutation.target),
-              attributeName,
-              attributeValue,
-            );
-            twist.attributeName = attributeName;
-            twist.attributeValue = valueOrUndefined(mutation.target.getAttribute(attributeName));
-            accum.push(twist);
-            break;
-          }
-        }
-
+    const twists: CiqStoryTwist[] = mutations.reduce((accum: CiqStoryTwist[], mutation: MutationRecord) => {
+      // for whatever reason we can sometimes get mutations for things that are not in the dom
+      if (!isInDom(mutation.target)) {
         return accum;
-      }, []);
+      }
+      switch (mutation.type) {
+        case 'childList':
+          if (mutation.addedNodes.length) {
+            const addTwists = walkAddTreeGetStylePromises(
+              mutation.addedNodes,
+              mutation.target,
+              twistIdFactory,
+              mutation.nextSibling ? makeCiqStoryNode(mutation.nextSibling) : undefined
+            );
+            accum = [...accum, ...addTwists];
+          }
+          if (mutation.removedNodes.length) {
+            const twist = createRemoveTwist(
+              Array.prototype.slice.call(mutation.removedNodes),
+              mutation.target,
+              twistIdFactory.next(),
+              mutation.nextSibling || undefined
+            );
+            accum.push(twist);
+          }
+
+          break;
+        case 'attributes': {
+          const attributeName = valueOrUndefined(mutation.attributeName);
+          if (!attributeName || !isElement(mutation.target)) {
+            console.error('got an attributes mutation with no attribute or target');
+            return accum;
+          }
+          const attributeValue = valueOrUndefined(mutation.target.getAttribute(attributeName));
+          const twist = createAttributesTwist(twistIdFactory.next(), new CiqStoryNode(mutation.target), attributeName, attributeValue);
+          twist.attributeName = attributeName;
+          twist.attributeValue = valueOrUndefined(mutation.target.getAttribute(attributeName));
+          accum.push(twist);
+          break;
+        }
+      }
+
+      return accum;
+    }, []);
     recordTwists(twists);
   });
 
-  journalistObserver.observe(document,
-    { childList: true, subtree: true, attributes: true }
-  );
+  journalistObserver.observe(document, { childList: true, subtree: true, attributes: true });
 
   function createRemoveTwist(removedNodes: Node[], target: Node, twistId: number, nextSibling?: Node) {
     return createChildListTwist(
@@ -520,11 +511,7 @@ export function createJournalist(
   }
 
   function makeAndAddResizeTwist() {
-    const resizeTwist = createResizeTwist(
-      twistIdFactory.next(),
-      window.innerWidth,
-      window.innerHeight,
-    );
+    const resizeTwist = createResizeTwist(twistIdFactory.next(), window.innerWidth, window.innerHeight);
     recordTwists(resizeTwist);
   }
 
@@ -536,38 +523,42 @@ export function createJournalist(
   const events = ['mousemove', 'mousedown', 'mouseup', 'input'];
 
   events.forEach((eventType) => {
-    document.addEventListener(eventType, (e) => {
-      let targetNode;
-      let twist: EventTwist | undefined;
-      const target = e.target;
-      switch (e.type) {
-        case 'mouseup':
-        case 'mousedown':
-          if (target instanceof Node) {
-            targetNode = new CiqStoryNode(target);
-          }
-        // tslint:disable-next-line:no-switch-case-fall-through
-        case 'mousemove':
-          twist = createEventTwist(twistIdFactory.next(), e.type, targetNode);
-          if (e instanceof MouseEvent) {
-            twist.clientX = e.clientX;
-            twist.clientY = e.clientY;
-          }
-          break;
-        case 'input':
-          if (target instanceof Node) {
-            targetNode = new CiqStoryNode(target);
-          }
-          twist = createEventTwist(twistIdFactory.next(), e.type, targetNode);
-          if (target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement) {
-            twist.textValue = target.value;
-          }
-          break;
-      }
-      if (twist) {
-        recordTwists(twist);
-      }
-    }, true);
+    document.addEventListener(
+      eventType,
+      (e) => {
+        let targetNode;
+        let twist: EventTwist | undefined;
+        const target = e.target;
+        switch (e.type) {
+          case 'mouseup':
+          case 'mousedown':
+            if (target instanceof Node) {
+              targetNode = new CiqStoryNode(target);
+            }
+          // tslint:disable-next-line:no-switch-case-fall-through
+          case 'mousemove':
+            twist = createEventTwist(twistIdFactory.next(), e.type, targetNode);
+            if (e instanceof MouseEvent) {
+              twist.clientX = e.clientX;
+              twist.clientY = e.clientY;
+            }
+            break;
+          case 'input':
+            if (target instanceof Node) {
+              targetNode = new CiqStoryNode(target);
+            }
+            twist = createEventTwist(twistIdFactory.next(), e.type, targetNode);
+            if (target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement) {
+              twist.textValue = target.value;
+            }
+            break;
+        }
+        if (twist) {
+          recordTwists(twist);
+        }
+      },
+      true
+    );
   });
 
   return ciqStoryJournalist;

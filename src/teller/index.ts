@@ -1,4 +1,5 @@
 import * as _ from 'lodash';
+
 import { walkAddNodeTree } from '../journalist';
 import {
   CiqStoryNode,

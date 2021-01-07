@@ -1,12 +1,11 @@
 import lifecycle = require('page-lifecycle/dist/lifecycle.es5.js');
+import * as _ from 'lodash';
+import * as uuid from 'uuid';
+
+import { IntId } from '../int-id';
 import { CiqStoryTwist, createAttributesTwist, createChildListTwist, createEventTwist, createResizeTwist, EventTwist } from '../types';
 import { CiqStoryNode } from '../types';
 import { isElement, valueOrUndefined } from '../util';
-
-import * as _ from 'lodash';
-import { IntId } from '../int-id';
-
-import * as uuid from 'uuid';
 export const CIQ_STORY_OBSCURED_CLASS = 'ciq-obscured';
 
 function walkAddTree(

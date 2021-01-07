@@ -12,7 +12,7 @@ export class ClickBubble {
     const clickDiameter = 20;
     const clickDiameterHalfNeg = (-1 * clickDiameter) / 2;
     const clickColor = 'rgba(0, 0, 0, 0.3)';
-    // tslint:disable:max-line-length
+
     const clickTransitionLength = '.1s';
     this.baseStyle = `
       transition: width ${clickTransitionLength}, height ${clickTransitionLength}, top ${clickTransitionLength}, left ${clickTransitionLength}, background-color ${clickTransitionLength}, margin ${clickTransitionLength};

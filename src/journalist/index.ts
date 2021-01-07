@@ -205,8 +205,7 @@ export function createJournalist(opts: JournalistOptions = {}) {
     if (batching && batching.batchSize) {
       const { unit, value: size } = batching.batchSize;
       return (
-        size *
-        (unit === BatchSizeUnit.KILOBYTES ? 1024 : unit === BatchSizeUnit.MEGABYTES ? 1024 * 1024 : 1) // last case is BYTES
+        size * (unit === BatchSizeUnit.KILOBYTES ? 1024 : unit === BatchSizeUnit.MEGABYTES ? 1024 * 1024 : 1) // last case is BYTES
       );
     }
     return undefined;
@@ -534,7 +533,7 @@ export function createJournalist(opts: JournalistOptions = {}) {
             if (target instanceof Node) {
               targetNode = new CiqStoryNode(target);
             }
-          // tslint:disable-next-line:no-switch-case-fall-through
+          // eslint-disable-next-line no-fallthrough
           case 'mousemove':
             twist = createEventTwist(twistIdFactory.next(), e.type, targetNode);
             if (e instanceof MouseEvent) {

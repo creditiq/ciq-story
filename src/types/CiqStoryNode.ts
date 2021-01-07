@@ -20,7 +20,7 @@ export class CiqStoryNode {
     if (isElement(node) && node.attributes.length) {
       this.attributes = {};
       //  it looks and acts like an array but is really a NamedNodeMap
-      // tslint:disable-next-line: prefer-for-of
+      // eslint-disable-next-line @typescript-eslint/prefer-for-of
       for (let n = 0; n < node.attributes.length; n++) {
         const attr = node.attributes[n];
         this.attributes[attr.name] = attr.value;
